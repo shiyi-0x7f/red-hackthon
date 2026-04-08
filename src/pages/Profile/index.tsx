@@ -54,11 +54,13 @@ const ProfilePage: React.FC = () => {
   const radarOption = useMemo(() => {
     const data = profileData.masteryData.slice(0, 6);
     return {
-      tooltip: { trigger: 'item' as const },
+      tooltip: { trigger: 'item' as const, formatter: (p: { value: number[] }) => p.value.map((v, i) => `${data[i].name}: ${v}%`).join('<br/>') },
       radar: {
-        indicator: data.map((d) => ({ name: d.name, max: 1 })),
+        // 不设置 max，让 radar 内部 scale 处理；min 通过统一的全 100 axis 锚定
+        indicator: data.map((d) => ({ name: d.name })),
         radius: '68%',
         splitNumber: 4,
+        scale: true,
         axisName: {
           color: '#6B6B8D',
           fontSize: 11,
@@ -74,7 +76,7 @@ const ProfilePage: React.FC = () => {
           symbolSize: 6,
           data: [
             {
-              value: data.map((d) => d.mastery_score),
+              value: data.map((d) => Math.round(d.mastery_score * 100)),
               name: '掌握度',
               areaStyle: {
                 color: {
@@ -109,7 +111,6 @@ const ProfilePage: React.FC = () => {
       },
       yAxis: {
         type: 'value' as const,
-        max: 100,
         axisLabel: { formatter: '{value}%', color: '#7b77a3' },
         splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.08)' } },
       },
