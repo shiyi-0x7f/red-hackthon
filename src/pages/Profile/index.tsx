@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
+import ReactECharts from 'echarts-for-react';
 
 interface MasteryItem {
   knowledge_id: string;
@@ -44,110 +45,135 @@ const getMockProfileData = () => {
 
 const ProfilePage: React.FC = () => {
   const [profileData, setProfileData] = useState(getMockProfileData());
-  const radarRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     setProfileData(getMockProfileData());
   }, []);
 
-  // 绘制雷达图
-  useEffect(() => {
-    const canvas = radarRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const size = 280;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
-    canvas.style.width = `${size}px`;
-    canvas.style.height = `${size}px`;
-    ctx.scale(dpr, dpr);
-
-    const cx = size / 2;
-    const cy = size / 2;
-    const maxR = size / 2 - 40;
+  // === ECharts 雷达图配置 ===
+  const radarOption = useMemo(() => {
     const data = profileData.masteryData.slice(0, 6);
-    const n = data.length;
-    if (n < 3) return;
+    return {
+      tooltip: { trigger: 'item' as const },
+      radar: {
+        indicator: data.map((d) => ({ name: d.name, max: 1 })),
+        radius: '68%',
+        splitNumber: 4,
+        axisName: {
+          color: '#6B6B8D',
+          fontSize: 11,
+        },
+        splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.15)' } },
+        splitArea: { areaStyle: { color: ['rgba(124, 92, 252, 0.02)', 'rgba(124, 92, 252, 0.06)'] } },
+        axisLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.2)' } },
+      },
+      series: [
+        {
+          type: 'radar' as const,
+          symbol: 'circle',
+          symbolSize: 6,
+          data: [
+            {
+              value: data.map((d) => d.mastery_score),
+              name: '掌握度',
+              areaStyle: {
+                color: {
+                  type: 'radial' as const,
+                  x: 0.5, y: 0.5, r: 0.7,
+                  colorStops: [
+                    { offset: 0, color: 'rgba(124, 92, 252, 0.45)' },
+                    { offset: 1, color: 'rgba(84, 181, 255, 0.1)' },
+                  ],
+                },
+              },
+              lineStyle: { color: '#7C5CFC', width: 2 },
+              itemStyle: { color: '#7C5CFC', borderColor: '#fff', borderWidth: 2 },
+            },
+          ],
+        },
+      ],
+    };
+  }, [profileData]);
 
-    const angleStep = (Math.PI * 2) / n;
+  // === 掌握度趋势折线（按 attempt_count 排序模拟时间序列）===
+  const trendOption = useMemo(() => {
+    const sorted = [...profileData.masteryData].sort((a, b) => b.attempt_count - a.attempt_count);
+    return {
+      tooltip: { trigger: 'axis' as const, formatter: '{b}<br/>掌握度: {c}%' },
+      grid: { left: 50, right: 20, top: 30, bottom: 40 },
+      xAxis: {
+        type: 'category' as const,
+        data: sorted.map((d) => d.name),
+        axisLabel: { rotate: 30, fontSize: 10, color: '#7b77a3' },
+        axisLine: { lineStyle: { color: '#e6e1ff' } },
+      },
+      yAxis: {
+        type: 'value' as const,
+        max: 100,
+        axisLabel: { formatter: '{value}%', color: '#7b77a3' },
+        splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.08)' } },
+      },
+      series: [
+        {
+          type: 'line' as const,
+          data: sorted.map((d) => Math.round(d.mastery_score * 100)),
+          smooth: true,
+          symbol: 'circle',
+          symbolSize: 8,
+          lineStyle: { color: '#7C5CFC', width: 3 },
+          itemStyle: { color: '#54B5FF', borderColor: '#fff', borderWidth: 2 },
+          areaStyle: {
+            color: {
+              type: 'linear' as const,
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: 'rgba(124, 92, 252, 0.35)' },
+                { offset: 1, color: 'rgba(124, 92, 252, 0.02)' },
+              ],
+            },
+          },
+        },
+      ],
+    };
+  }, [profileData]);
 
-    // 画背景网格
-    ctx.clearRect(0, 0, size, size);
-    for (let ring = 1; ring <= 4; ring++) {
-      const r = maxR * (ring / 4);
-      ctx.beginPath();
-      for (let i = 0; i <= n; i++) {
-        const angle = i * angleStep - Math.PI / 2;
-        const x = cx + r * Math.cos(angle);
-        const y = cy + r * Math.sin(angle);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
-      ctx.strokeStyle = 'rgba(124, 92, 252, 0.08)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-
-    // 画轴线
-    for (let i = 0; i < n; i++) {
-      const angle = i * angleStep - Math.PI / 2;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + maxR * Math.cos(angle), cy + maxR * Math.sin(angle));
-      ctx.strokeStyle = 'rgba(124, 92, 252, 0.1)';
-      ctx.stroke();
-    }
-
-    // 画数据区域
-    ctx.beginPath();
-    for (let i = 0; i <= n; i++) {
-      const idx = i % n;
-      const angle = idx * angleStep - Math.PI / 2;
-      const r = maxR * data[idx].mastery_score;
-      const x = cx + r * Math.cos(angle);
-      const y = cy + r * Math.sin(angle);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
-    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
-    gradient.addColorStop(0, 'rgba(124, 92, 252, 0.3)');
-    gradient.addColorStop(1, 'rgba(124, 92, 252, 0.05)');
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.strokeStyle = '#7C5CFC';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // 画数据点和标签
-    for (let i = 0; i < n; i++) {
-      const angle = i * angleStep - Math.PI / 2;
-      const r = maxR * data[i].mastery_score;
-      const x = cx + r * Math.cos(angle);
-      const y = cy + r * Math.sin(angle);
-
-      // 点
-      ctx.beginPath();
-      ctx.arc(x, y, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#7C5CFC';
-      ctx.fill();
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // 标签
-      const lx = cx + (maxR + 22) * Math.cos(angle);
-      const ly = cy + (maxR + 22) * Math.sin(angle);
-      ctx.fillStyle = '#6B6B8D';
-      ctx.font = '11px "Noto Sans SC", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(data[i].name, lx, ly);
-    }
+  // === 学习量柱状图（按知识点的练习次数）===
+  const attemptOption = useMemo(() => {
+    const sorted = [...profileData.masteryData].sort((a, b) => b.attempt_count - a.attempt_count).slice(0, 8);
+    return {
+      tooltip: { trigger: 'axis' as const, formatter: '{b}<br/>{a}: {c} 道' },
+      grid: { left: 50, right: 20, top: 30, bottom: 40 },
+      xAxis: {
+        type: 'category' as const,
+        data: sorted.map((d) => d.name),
+        axisLabel: { rotate: 30, fontSize: 10, color: '#7b77a3' },
+        axisLine: { lineStyle: { color: '#e6e1ff' } },
+      },
+      yAxis: {
+        type: 'value' as const,
+        axisLabel: { color: '#7b77a3' },
+        splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.08)' } },
+      },
+      series: [
+        {
+          name: '练习题量',
+          type: 'bar' as const,
+          data: sorted.map((d) => d.attempt_count),
+          itemStyle: {
+            color: {
+              type: 'linear' as const,
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: '#7C5CFC' },
+                { offset: 1, color: '#54B5FF' },
+              ],
+            },
+            borderRadius: [6, 6, 0, 0],
+          },
+          barWidth: '50%',
+        },
+      ],
+    };
   }, [profileData]);
 
   const { totalAnswers, accuracy, learningDays, streakDays, masteryData } = profileData;
@@ -184,12 +210,10 @@ const ProfilePage: React.FC = () => {
       </div>
 
       <div className="profile-charts-row">
-        {/* 雷达图 */}
+        {/* ECharts 雷达图 */}
         <div className="card profile-radar-card">
           <h2 className="card-title">📊 知识掌握雷达</h2>
-          <div className="radar-container">
-            <canvas ref={radarRef} />
-          </div>
+          <ReactECharts option={radarOption} style={{ height: 320, width: '100%' }} />
         </div>
 
         {/* 弱项排行 */}
@@ -215,6 +239,18 @@ const ProfilePage: React.FC = () => {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* 掌握度趋势 + 练习量柱状 */}
+      <div className="profile-charts-row">
+        <div className="card profile-trend-card">
+          <h2 className="card-title">📈 掌握度趋势（按熟悉度排序）</h2>
+          <ReactECharts option={trendOption} style={{ height: 260, width: '100%' }} />
+        </div>
+        <div className="card profile-attempt-card">
+          <h2 className="card-title">📊 各知识点练习量</h2>
+          <ReactECharts option={attemptOption} style={{ height: 260, width: '100%' }} />
         </div>
       </div>
 
