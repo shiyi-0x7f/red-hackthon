@@ -820,10 +820,73 @@
   font-size: 14px;
 }
 
+.wrong-book-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wrong-book-count {
+  font-size: 12px;
+  color: #9892c0;
+  font-weight: 500;
+}
+
+/* 筛选 chip 行 */
+.wrong-filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #faf8ff;
+  border-radius: 12px;
+}
+.wrong-filter-units {
+  background: #f0f8ff;
+}
+.wrong-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: #fff;
+  border: 1px solid #d5ccff;
+  color: #4a3e85;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.wrong-filter-chip:hover:not(.active) {
+  background: #ece9ff;
+}
+.wrong-filter-chip.active {
+  background: linear-gradient(135deg, #7C5CFC, #54B5FF);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 3px 10px rgba(124, 92, 252, 0.3);
+}
+.wrong-filter-count {
+  display: inline-block;
+  padding: 1px 7px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.wrong-filter-chip:not(.active) .wrong-filter-count {
+  background: #ece9ff;
+  color: #7C5CFC;
+}
+
 .wrong-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   margin-top: 12px;
 }
 
@@ -831,18 +894,67 @@
   background: #fff;
   border: 1px solid #f0eefb;
   border-radius: 12px;
-  padding: 14px 16px;
   border-left: 4px solid #FF6B6B;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+.wrong-item:hover {
+  box-shadow: 0 4px 14px rgba(124, 92, 252, 0.12);
+}
+.wrong-item.expanded {
+  box-shadow: 0 6px 18px rgba(124, 92, 252, 0.18);
 }
 
-.wrong-item-header {
+/* 折叠态：整条可点击 */
+.wrong-item-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  font-size: 12px;
-  flex-wrap: wrap;
+  width: 100%;
+  padding: 12px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
 }
+.wrong-item-bar-main {
+  flex: 1;
+  min-width: 0;
+}
+.wrong-item-bar-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.wrong-item-preview {
+  font-size: 13px;
+  color: #4a3e85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wrong-item-chev {
+  color: #9892c0;
+  font-size: 12px;
+  margin-left: 10px;
+  transition: transform 0.25s;
+  flex-shrink: 0;
+}
+.wrong-item-chev.open {
+  transform: rotate(90deg);
+  color: #7C5CFC;
+}
+
+.wrong-item-expanded {
+  overflow: hidden;
+}
+.wrong-item-expanded-inner {
+  padding: 12px 16px 14px;
+  border-top: 1px dashed #f0eefb;
+}
+
 .wrong-item-unit {
   background: #f7f5ff;
   color: #4a3e85;
@@ -857,8 +969,6 @@
   border-radius: 10px;
 }
 .wrong-item-error-tag {
-  background: #fff4e6;
-  color: #8c5a00;
   padding: 2px 10px;
   border-radius: 10px;
   font-weight: 600;
@@ -873,7 +983,11 @@
   font-size: 14px;
   color: #2c2550;
   line-height: 1.7;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: #faf8ff;
+  border-radius: 10px;
+  border-left: 3px solid #7C5CFC;
 }
 
 .wrong-item-answers {
