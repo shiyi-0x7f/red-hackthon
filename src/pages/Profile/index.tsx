@@ -10,26 +10,35 @@ interface MasteryItem {
   forgetting_risk: number;
 }
 
+interface DailyStat {
+  date: string;
+  duration_minutes: number;
+}
+
 // Mock 数据（浏览器模式）
 const getMockProfileData = () => {
   const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
   const total = records.length;
   const correct = records.filter((r: { isCorrect: boolean }) => r.isCorrect).length;
 
-  const masteryMap: Record<string, { correct: number; total: number }> = {};
-  records.forEach((r: { questionId: string; isCorrect: boolean }) => {
-    const unit = r.questionId?.split('-')[0] || 'unknown';
-    if (!masteryMap[unit]) masteryMap[unit] = { correct: 0, total: 0 };
-    masteryMap[unit].total++;
-    if (r.isCorrect) masteryMap[unit].correct++;
+  // 最近 7 天每日学习时长 mock
+  const dailyStats: DailyStat[] = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6 + i);
+    return {
+      date: d.toISOString().slice(5, 10), // MM-DD
+      duration_minutes: Math.floor(Math.random() * 35) + 5,
+    };
   });
+  const totalDurationMinutes = dailyStats.reduce((s, d) => s + d.duration_minutes, 0);
 
   return {
     totalAnswers: total,
     correctCount: correct,
     accuracy: total > 0 ? correct / total : 0,
     learningDays: Math.min(Math.floor(total / 5) + 1, 30),
-    streakDays: Math.min(Math.floor(total / 3), 7),
+    totalDurationMinutes,
+    dailyStats,
     masteryData: [
       { knowledge_id: 'k1', name: '分数乘法', mastery_score: 0.85, attempt_count: 12, forgetting_risk: 0.15 },
       { knowledge_id: 'k2', name: '位置与方向', mastery_score: 0.72, attempt_count: 8, forgetting_risk: 0.28 },
@@ -177,9 +186,42 @@ const ProfilePage: React.FC = () => {
     };
   }, [profileData]);
 
-  const { totalAnswers, accuracy, learningDays, streakDays, masteryData } = profileData;
+  const { totalAnswers, accuracy, learningDays, totalDurationMinutes, dailyStats, masteryData } = profileData;
   const weakPoints = [...masteryData].sort((a, b) => a.mastery_score - b.mastery_score).slice(0, 5);
   const forgettingAlerts = masteryData.filter(m => m.forgetting_risk > 0.5);
+
+  // 学习时间趋势柱状图（最近 7 天每日分钟数）
+  const dailyDurationOption = useMemo(() => ({
+    tooltip: { trigger: 'axis' as const, formatter: '{b}<br/>学习 {c} 分钟' },
+    grid: { left: 50, right: 20, top: 30, bottom: 40 },
+    xAxis: {
+      type: 'category' as const,
+      data: dailyStats.map((d) => d.date),
+      axisLabel: { fontSize: 11, color: '#7b77a3' },
+      axisLine: { lineStyle: { color: '#e6e1ff' } },
+    },
+    yAxis: {
+      type: 'value' as const,
+      axisLabel: { formatter: '{value}\u00a0分', color: '#7b77a3' },
+      splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.08)' } },
+    },
+    series: [{
+      type: 'bar' as const,
+      data: dailyStats.map((d) => d.duration_minutes),
+      itemStyle: {
+        color: {
+          type: 'linear' as const,
+          x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: '#7C5CFC' },
+            { offset: 1, color: '#9B7FFF' },
+          ],
+        },
+        borderRadius: [8, 8, 0, 0],
+      },
+      barWidth: '50%',
+    }],
+  }), [dailyStats]);
 
   return (
     <motion.div
@@ -193,21 +235,27 @@ const ProfilePage: React.FC = () => {
       {/* 概况卡片 */}
       <div className="profile-stats-grid">
         <div className="profile-stat-card stat-primary">
-          <div className="stat-number">{totalAnswers}</div>
-          <div className="stat-label">总答题数</div>
+          <div className="stat-number">{totalDurationMinutes}</div>
+          <div className="stat-label">学习时长(分)</div>
         </div>
         <div className="profile-stat-card stat-success">
+          <div className="stat-number">{totalAnswers}</div>
+          <div className="stat-label">完成题目</div>
+        </div>
+        <div className="profile-stat-card stat-warning">
           <div className="stat-number">{(accuracy * 100).toFixed(0)}%</div>
           <div className="stat-label">正确率</div>
         </div>
-        <div className="profile-stat-card stat-warning">
+        <div className="profile-stat-card stat-accent">
           <div className="stat-number">{learningDays}</div>
           <div className="stat-label">学习天数</div>
         </div>
-        <div className="profile-stat-card stat-accent">
-          <div className="stat-number">{streakDays} 🔥</div>
-          <div className="stat-label">连续打卡</div>
-        </div>
+      </div>
+
+      {/* 学习时间趋势（最近 7 天每日分钟数）*/}
+      <div className="card profile-time-trend-card">
+        <h2 className="card-title">📈 学习时间趋势</h2>
+        <ReactECharts option={dailyDurationOption} style={{ height: 240, width: '100%' }} />
       </div>
 
       <div className="profile-charts-row">
