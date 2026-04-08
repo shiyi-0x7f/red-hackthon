@@ -250,6 +250,12 @@ export interface ReviewItem {
   forgetting_risk: number;
   attempt_count: number;
   hours_since_last: number;
+  /** 艾宾浩斯理想间隔（小时） */
+  ideal_interval_hours?: number;
+  /** 实际时间 / 理想间隔，>1 即已过期 */
+  overdue_ratio?: number;
+  /** 优先级打分，越大越紧迫 */
+  priority_score?: number;
 }
 
 export interface ProfileOverview {
@@ -352,15 +358,62 @@ export const studentModelService = {
     return invoke<WrongAnswer[]>('get_wrong_answers', { studentId, limit });
   },
 
-  /** 复习推荐：高遗忘风险知识点 */
+  /** 复习推荐：基于艾宾浩斯 + 优先级打分，只返回到期的 */
   getReviewRecommendations: async (studentId: string): Promise<ReviewItem[]> => {
     if (!isTauri()) {
-      // 浏览器 mock：基于 Profile mock 数据生成
-      return [
-        { knowledge_id: 'kn-比', name: '比', mastery_score: 0.58, forgetting_risk: 0.72, attempt_count: 6, hours_since_last: 50 },
-        { knowledge_id: 'kn-圆', name: '圆', mastery_score: 0.45, forgetting_risk: 0.66, attempt_count: 4, hours_since_last: 75 },
-        { knowledge_id: 'kn-百分数', name: '百分数', mastery_score: 0.38, forgetting_risk: 0.62, attempt_count: 3, hours_since_last: 120 },
-      ];
+      // 浏览器 mock：从 localStorage 构造一个简易版
+      try {
+        const records: Array<{ knowledgePoint?: string; unit?: string; isCorrect: boolean; timestamp: number }> =
+          JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
+        if (records.length === 0) return [];
+
+        // 按 KP 汇总
+        const now = Date.now();
+        const map = new Map<string, { correct: number; total: number; latest: number; unit?: string }>();
+        for (const r of records) {
+          const key = r.knowledgePoint || r.unit || 'unknown';
+          const entry = map.get(key) || { correct: 0, total: 0, latest: 0, unit: r.unit };
+          entry.total++;
+          if (r.isCorrect) entry.correct++;
+          if (r.timestamp > entry.latest) entry.latest = r.timestamp;
+          map.set(key, entry);
+        }
+
+        // Ebbinghaus interval（简化版，与后端对齐）
+        const intervalHours = (attempts: number, mastery: number): number => {
+          const base = attempts <= 1 ? 0.33 : attempts === 2 ? 1 : attempts === 3 ? 8
+                     : attempts === 4 ? 24 : attempts === 5 ? 48 : attempts === 6 ? 96
+                     : attempts === 7 ? 168 : attempts === 8 ? 360 : 720;
+          return base * (0.5 + mastery * 1.5);
+        };
+
+        const items: ReviewItem[] = [];
+        for (const [name, d] of map.entries()) {
+          const mastery = d.total > 0 ? d.correct / d.total : 0;
+          const hoursAgo = (now - d.latest) / 3600000;
+          const ideal = intervalHours(d.total, mastery);
+          if (hoursAgo < ideal * 0.8) continue; // 未到期
+          const overdueRatio = hoursAgo / Math.max(0.1, ideal);
+          const risk = Math.max(0, Math.min(1, 1 - mastery * Math.exp(-hoursAgo / 48)));
+          const priority = overdueRatio * Math.max(0.1, 1 - mastery) * (risk + 0.1);
+          items.push({
+            knowledge_id: 'kn-' + name,
+            name,
+            mastery_score: mastery,
+            forgetting_risk: risk,
+            attempt_count: d.total,
+            hours_since_last: Math.round(hoursAgo),
+            ideal_interval_hours: Math.round(ideal),
+            overdue_ratio: overdueRatio,
+            priority_score: priority,
+          });
+        }
+
+        items.sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
+        return items.slice(0, 5);
+      } catch {
+        return [];
+      }
     }
     return invoke<ReviewItem[]>('get_review_recommendations', { studentId });
   },

@@ -125,9 +125,43 @@ pub async fn get_wrong_answers(
     Ok(out)
 }
 
-/// 复习推荐：返回 forgetting_risk 高的知识点 + 该知识点的真题样本
+/// 艾宾浩斯间隔（小时）：第 N 次练习后距离下次理想复习的间隔
+/// attempt=1 → 20 分钟后（0.33h）
+/// attempt=2 → 1 小时后
+/// attempt=3 → 8 小时后
+/// attempt=4 → 24 小时（1 天）
+/// attempt=5 → 48 小时（2 天）
+/// attempt=6 → 96 小时（4 天）
+/// attempt=7 → 168 小时（7 天）
+/// attempt=8 → 360 小时（15 天）
+/// attempt≥9 → 720 小时（30 天）
+fn ebbinghaus_interval_hours(attempts: i32, mastery: f64) -> f64 {
+    let base: f64 = match attempts {
+        0 | 1 => 0.33,
+        2 => 1.0,
+        3 => 8.0,
+        4 => 24.0,
+        5 => 48.0,
+        6 => 96.0,
+        7 => 168.0,
+        8 => 360.0,
+        _ => 720.0,
+    };
+    // 掌握度高的延长间隔（最多 2 倍），掌握度低的缩短（最多 0.5 倍）
+    let mastery_factor = 0.5 + mastery * 1.5;
+    base * mastery_factor
+}
+
+/// 复习推荐：基于艾宾浩斯遗忘曲线 + 优先级打分
 ///
-/// 用于 Review 页驱动遗忘曲线复习
+/// 算法：
+/// 1. 查询所有 knowledge_mastery 行
+/// 2. 对每个 KP 计算理想复习间隔 (ebbinghaus)
+/// 3. 如果 hours_since_last >= ideal_interval → "due now"（到期）
+/// 4. 优先级分 = overdue_ratio * (1 - mastery) * forgetting_risk
+/// 5. 按优先级降序返回，最多 5 条（减少学生复习负担）
+///
+/// 只返回"到期"的 KP，未到期的不打扰。如果全部都没到期 → 返回空列表。
 #[tauri::command]
 pub async fn get_review_recommendations(
     student_id: String,
@@ -135,33 +169,69 @@ pub async fn get_review_recommendations(
 ) -> AppResult<Vec<serde_json::Value>> {
     let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
 
-    let mut out: Vec<serde_json::Value> = Vec::new();
+    let mut candidates: Vec<(f64, serde_json::Value)> = Vec::new();
+
     let mut stmt = db.prepare(
         "SELECT km.knowledge_id, COALESCE(kn.name, km.knowledge_id) AS name,
                 km.mastery_score, km.forgetting_risk, km.attempt_count,
                 km.last_practiced_at
          FROM knowledge_mastery km
          LEFT JOIN knowledge_nodes kn ON km.knowledge_id = kn.id
-         WHERE km.student_id = ?1
-         ORDER BY km.forgetting_risk DESC, km.mastery_score ASC
-         LIMIT 8"
+         WHERE km.student_id = ?1"
     )?;
     let rows = stmt.query_map(rusqlite::params![student_id], |row| {
-        let last_at: Option<String> = row.get(5)?;
-        let hours_ago = last_at.as_ref()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| (chrono::Utc::now() - dt.with_timezone(&chrono::Utc)).num_hours())
-            .unwrap_or(0);
-        Ok(serde_json::json!({
-            "knowledge_id": row.get::<_, String>(0)?,
-            "name": row.get::<_, String>(1)?,
-            "mastery_score": row.get::<_, f64>(2)?,
-            "forgetting_risk": row.get::<_, f64>(3)?,
-            "attempt_count": row.get::<_, i32>(4)?,
-            "hours_since_last": hours_ago,
-        }))
+        Ok((
+            row.get::<_, String>(0)?, // knowledge_id
+            row.get::<_, String>(1)?, // name
+            row.get::<_, f64>(2)?,    // mastery_score
+            row.get::<_, f64>(3)?,    // forgetting_risk
+            row.get::<_, i32>(4)?,    // attempt_count
+            row.get::<_, Option<String>>(5)?, // last_practiced_at
+        ))
     })?;
-    for r in rows.flatten() { out.push(r); }
+
+    let now = chrono::Utc::now();
+    for row in rows.flatten() {
+        let (kid, name, mastery, risk, attempts, last_at) = row;
+        let hours_ago: f64 = last_at.as_ref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| (now - dt.with_timezone(&chrono::Utc)).num_seconds() as f64 / 3600.0)
+            .unwrap_or(0.0);
+
+        let ideal = ebbinghaus_interval_hours(attempts, mastery);
+
+        // 只纳入到期或过期的项（留 80% buffer，避免卡点即提醒）
+        if hours_ago < ideal * 0.8 {
+            continue;
+        }
+
+        // 过期比例（>=1 表示已过期）
+        let overdue_ratio = hours_ago / ideal.max(0.1);
+
+        // 优先级：过期越久、掌握度越低、遗忘风险越高 → 分数越高
+        let priority = overdue_ratio * (1.0 - mastery).max(0.1) * (risk + 0.1);
+
+        candidates.push((
+            priority,
+            serde_json::json!({
+                "knowledge_id": kid,
+                "name": name,
+                "mastery_score": mastery,
+                "forgetting_risk": risk,
+                "attempt_count": attempts,
+                "hours_since_last": hours_ago as i64,
+                "ideal_interval_hours": ideal as i64,
+                "overdue_ratio": overdue_ratio,
+                "priority_score": priority,
+            }),
+        ));
+    }
+
+    // 按优先级降序
+    candidates.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    // 最多返回 5 条（减少学习压力）
+    let out: Vec<serde_json::Value> = candidates.into_iter().take(5).map(|(_, v)| v).collect();
     Ok(out)
 }
 
