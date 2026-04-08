@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import JXG from 'jsxgraph';
-import 'jsxgraph/distrib/jsxgraph.css';
+// 注：jsxgraph 的 package.json exports 未暴露 CSS；我们在 learning-extras.css
+// 里提供了 .jxgbox 基础样式，showNavigation/showCopyright 已关闭，无需包内 CSS。
 
 /**
  * JSXGraph 元素描述（来自后端 LLM）
