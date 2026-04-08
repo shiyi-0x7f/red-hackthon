@@ -289,6 +289,16 @@ const ProfilePage: React.FC = () => {
     }],
   }), [dailyStats]);
 
+  // === Tab 定义 ===
+  type TabKey = 'overview' | 'knowledge' | 'wrongbook' | 'profile';
+  const TABS: Array<{ key: TabKey; label: string; emoji: string }> = [
+    { key: 'overview', label: '学习概况', emoji: '📊' },
+    { key: 'knowledge', label: '知识地图', emoji: '🎯' },
+    { key: 'wrongbook', label: '错题本', emoji: '📕' },
+    { key: 'profile', label: '我的档案', emoji: '🌈' },
+  ];
+  const [activeTab, setActiveTab] = useState<TabKey>('overview');
+
   return (
     <motion.div
       className="profile-page"
@@ -303,98 +313,128 @@ const ProfilePage: React.FC = () => {
         </span>
       </h1>
 
-      {/* 概况卡片 */}
-      <div className="profile-stats-grid">
-        <div className="profile-stat-card stat-primary">
-          <div className="stat-number">{totalDurationMinutes}</div>
-          <div className="stat-label">学习时长(分)</div>
-        </div>
-        <div className="profile-stat-card stat-success">
-          <div className="stat-number">{totalAnswers}</div>
-          <div className="stat-label">完成题目</div>
-        </div>
-        <div className="profile-stat-card stat-warning">
-          <div className="stat-number">{(accuracy * 100).toFixed(0)}%</div>
-          <div className="stat-label">正确率</div>
-        </div>
-        <div className="profile-stat-card stat-accent">
-          <div className="stat-number">{learningDays}</div>
-          <div className="stat-label">学习天数</div>
-        </div>
+      {/* Tab 切换栏 */}
+      <div className="profile-tabs">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            className={`profile-tab ${activeTab === tab.key ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.key)}
+          >
+            <span className="profile-tab-emoji">{tab.emoji}</span>
+            <span>{tab.label}</span>
+          </button>
+        ))}
       </div>
 
-      {/* 学习时间趋势（最近 7 天每日分钟数）*/}
-      <div className="card profile-time-trend-card">
-        <h2 className="card-title">📈 学习时间趋势</h2>
-        <ReactECharts option={dailyDurationOption} style={{ height: 240, width: '100%' }} />
-      </div>
+      <motion.div
+        key={activeTab}
+        className="profile-tab-content"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+      >
+        {/* Tab 1: 学习概况 */}
+        {activeTab === 'overview' && (
+          <>
+            <div className="profile-stats-grid">
+              <div className="profile-stat-card stat-primary">
+                <div className="stat-number">{totalDurationMinutes}</div>
+                <div className="stat-label">学习时长(分)</div>
+              </div>
+              <div className="profile-stat-card stat-success">
+                <div className="stat-number">{totalAnswers}</div>
+                <div className="stat-label">完成题目</div>
+              </div>
+              <div className="profile-stat-card stat-warning">
+                <div className="stat-number">{(accuracy * 100).toFixed(0)}%</div>
+                <div className="stat-label">正确率</div>
+              </div>
+              <div className="profile-stat-card stat-accent">
+                <div className="stat-number">{learningDays}</div>
+                <div className="stat-label">学习天数</div>
+              </div>
+            </div>
 
-      <div className="profile-charts-row">
-        {/* ECharts 雷达图 */}
-        <div className="card profile-radar-card">
-          <h2 className="card-title">📊 知识掌握雷达</h2>
-          <ReactECharts option={radarOption} style={{ height: 320, width: '100%' }} />
-        </div>
+            <div className="card profile-time-trend-card">
+              <h2 className="card-title">📈 学习时间趋势</h2>
+              <ReactECharts option={dailyDurationOption} style={{ height: 240, width: '100%' }} />
+            </div>
+          </>
+        )}
 
-        {/* 弱项排行 */}
-        <div className="card profile-weak-card">
-          <h2 className="card-title">📉 需要加强的知识点</h2>
-          <div className="weak-list">
-            {weakPoints.map((item, idx) => (
-              <div key={item.knowledge_id} className="weak-item">
-                <span className="weak-rank">{idx + 1}</span>
-                <span className="weak-name">{item.name}</span>
-                <div className="weak-bar-wrapper">
-                  <div
-                    className="weak-bar"
-                    style={{
-                      width: `${item.mastery_score * 100}%`,
-                      background: item.mastery_score < 0.4 ? '#FF6B6B'
-                        : item.mastery_score < 0.7 ? '#FFB647'
-                        : '#4ECDC4',
-                    }}
-                  />
+        {/* Tab 2: 知识地图 */}
+        {activeTab === 'knowledge' && (
+          <>
+            <div className="profile-charts-row">
+              <div className="card profile-radar-card">
+                <h2 className="card-title">📊 知识掌握雷达</h2>
+                <ReactECharts option={radarOption} style={{ height: 320, width: '100%' }} />
+              </div>
+
+              <div className="card profile-weak-card">
+                <h2 className="card-title">📉 需要加强的知识点</h2>
+                <div className="weak-list">
+                  {weakPoints.map((item, idx) => (
+                    <div key={item.knowledge_id} className="weak-item">
+                      <span className="weak-rank">{idx + 1}</span>
+                      <span className="weak-name">{item.name}</span>
+                      <div className="weak-bar-wrapper">
+                        <div
+                          className="weak-bar"
+                          style={{
+                            width: `${item.mastery_score * 100}%`,
+                            background: item.mastery_score < 0.4 ? '#FF6B6B'
+                              : item.mastery_score < 0.7 ? '#FFB647'
+                              : '#4ECDC4',
+                          }}
+                        />
+                      </div>
+                      <span className="weak-score">{(item.mastery_score * 100).toFixed(0)}%</span>
+                    </div>
+                  ))}
                 </div>
-                <span className="weak-score">{(item.mastery_score * 100).toFixed(0)}%</span>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
+            </div>
 
-      {/* 掌握度趋势 + 练习量柱状 */}
-      <div className="profile-charts-row">
-        <div className="card profile-trend-card">
-          <h2 className="card-title">📈 掌握度趋势（按熟悉度排序）</h2>
-          <ReactECharts option={trendOption} style={{ height: 260, width: '100%' }} />
-        </div>
-        <div className="card profile-attempt-card">
-          <h2 className="card-title">📊 各知识点练习量</h2>
-          <ReactECharts option={attemptOption} style={{ height: 260, width: '100%' }} />
-        </div>
-      </div>
-
-      {/* 兴趣画像 */}
-      <InterestProfile studentId={STUDENT_ID} />
-
-      {/* 错题本 */}
-      <WrongAnswerBook studentId={STUDENT_ID} />
-
-      {/* 遗忘预警 */}
-      {forgettingAlerts.length > 0 && (
-        <div className="card profile-forget-card">
-          <h2 className="card-title">⏰ 遗忘预警</h2>
-          <p className="section-desc">以下知识点可能快要忘记了，建议及时复习</p>
-          <div className="forget-tags">
-            {forgettingAlerts.map((item) => (
-              <div key={item.knowledge_id} className="forget-tag">
-                <span className="forget-tag-name">{item.name}</span>
-                <span className="forget-tag-risk">风险 {(item.forgetting_risk * 100).toFixed(0)}%</span>
+            <div className="profile-charts-row">
+              <div className="card profile-trend-card">
+                <h2 className="card-title">📈 掌握度趋势（按熟悉度排序）</h2>
+                <ReactECharts option={trendOption} style={{ height: 260, width: '100%' }} />
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <div className="card profile-attempt-card">
+                <h2 className="card-title">📊 各知识点练习量</h2>
+                <ReactECharts option={attemptOption} style={{ height: 260, width: '100%' }} />
+              </div>
+            </div>
+
+            {forgettingAlerts.length > 0 && (
+              <div className="card profile-forget-card">
+                <h2 className="card-title">⏰ 遗忘预警</h2>
+                <p className="section-desc">以下知识点可能快要忘记了，建议及时复习</p>
+                <div className="forget-tags">
+                  {forgettingAlerts.map((item) => (
+                    <div key={item.knowledge_id} className="forget-tag">
+                      <span className="forget-tag-name">{item.name}</span>
+                      <span className="forget-tag-risk">风险 {(item.forgetting_risk * 100).toFixed(0)}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Tab 3: 错题本 */}
+        {activeTab === 'wrongbook' && (
+          <WrongAnswerBook studentId={STUDENT_ID} />
+        )}
+
+        {/* Tab 4: 我的档案（兴趣画像） */}
+        {activeTab === 'profile' && (
+          <InterestProfile studentId={STUDENT_ID} />
+        )}
+      </motion.div>
     </motion.div>
   );
 };
