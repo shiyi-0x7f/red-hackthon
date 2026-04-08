@@ -27,16 +27,44 @@ const STUDENT_ID = 'default-student';
    LaTeX 渲染工具
    ======================================== */
 
+/**
+ * 自动把裸露的 LaTeX 命令（\frac / \times / \div / \pi / \cdot / \sqrt 等）
+ * 包裹成 $...$。用于 AI 生成题目不听话不写 $ 的情况。
+ *
+ * 规则：匹配"包含 \latex 命令的连续非中文段"，用 $ 包裹。
+ * 中文字符（CJK）会把数学段天然切开。
+ */
+function autoWrapLatex(text: string): string {
+  // 已经有 $ 则不动
+  if (text.includes('$')) return text;
+  // 无 LaTeX 命令则不动
+  if (!/\\[a-zA-Z]/.test(text)) return text;
+
+  // 匹配：包含至少一个 \command 的连续"数学字符 + 空格"段
+  // 字符类：ASCII 字母数字、反斜杠、花括号、运算符、等号、圆点、空格、× ÷
+  // 不含：中文、中文括号 （）、中文标点
+  const mathSpan = /([A-Za-z0-9\\{}+\-*/=.()×÷\s]*?\\[a-zA-Z]+(?:\{[^{}]*\})*(?:[A-Za-z0-9\\{}+\-*/=.()×÷\s]*\\[a-zA-Z]+(?:\{[^{}]*\})*)*[A-Za-z0-9\\{}+\-*/=.()×÷\s]*)/g;
+  return text.replace(mathSpan, (m) => {
+    const trimmed = m.trim();
+    if (!trimmed) return m;
+    // 再次防御：如果一丁点 LaTeX 命令都没有，不包裹
+    if (!/\\[a-zA-Z]/.test(trimmed)) return m;
+    return ` $${trimmed}$ `;
+  });
+}
+
 /** 将混合文本中的 $...$ 替换为渲染后的 HTML */
-function renderLatexMixed(text: string): string {
-  // 先把填空占位符 （\;\;） / (\;\;) 替换为视觉空白下划线
-  // 注意：这里是纯文本（非 $..$ 内），\; 会被字面输出，所以要手动处理
+function renderLatexMixed(rawText: string): string {
+  // 0) 兜底：AI 生成题可能没写 $，自动包裹
+  const text = autoWrapLatex(rawText);
+
+  // 1) 把填空占位符 （\;\;） / (\;\;) 替换为视觉空白下划线
   let result = text.replace(
     /[（(]\s*\\?;\s*\\?;\s*[）)]/g,
     '<span class="blank-slot">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'
   );
 
-  // 处理 $$...$$ (display math)
+  // 2) $$...$$ (display math)
   result = result.replace(/\$\$([^$]+)\$\$/g, (_match, latex) => {
     try {
       return katex.renderToString(latex, { displayMode: true, throwOnError: false });
@@ -44,7 +72,7 @@ function renderLatexMixed(text: string): string {
       return latex;
     }
   });
-  // 处理 $...$ (inline math)
+  // 3) $...$ (inline math)
   result = result.replace(/\$([^$]+)\$/g, (_match, latex) => {
     try {
       return katex.renderToString(latex, { displayMode: false, throwOnError: false });
