@@ -65,10 +65,6 @@ const UNIT_CFGS = [
 interface Progress {
   /** 前 N 个节点视为 completed */
   completedTotal: number;
-  /** current 节点的全局 index（= completedTotal） */
-  currentIdx: number;
-  /** available 节点的全局 index（= currentIdx + 1） */
-  availableIdx: number;
   /** 数据来源：后端 DB 或浏览器 mock */
   source: 'backend' | 'mock';
 }
@@ -79,84 +75,91 @@ interface Progress {
  * 2. 失败（浏览器模式 / 后端未启动）→ fallback 到 localStorage mock
  *
  * 映射规则：每 2 条真实答题记录 ≈ 完成一个知识点节点
- * 清除学习数据后 → answer_count=0 → 所有节点回到初始态
+ * 清除学习数据后 → 进度归 0，所有节点默认 available（可自由探索）
  */
 async function computeProgress(): Promise<Progress> {
-  // 先尝试后端
   try {
     const overview = await studentModelService.getProfileOverview(STUDENT_ID);
     if (overview) {
       const n = overview.total_questions || 0;
-      const completed = Math.min(Math.floor(n / 2), 60);
-      return {
-        completedTotal: completed,
-        currentIdx: completed,
-        availableIdx: completed + 1,
-        source: 'backend',
-      };
+      return { completedTotal: Math.min(Math.floor(n / 2), 60), source: 'backend' };
     }
   } catch (e) {
     console.warn('[Learn] 后端进度获取失败，fallback 到 localStorage:', e);
   }
 
-  // fallback 到浏览器 mock
   try {
     const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
     const n = Array.isArray(records) ? records.length : 0;
-    if (n === 0) {
-      return { completedTotal: 0, currentIdx: 0, availableIdx: 1, source: 'mock' };
-    }
-    const completed = Math.min(Math.floor(n / 2), 40);
-    return { completedTotal: completed, currentIdx: completed, availableIdx: completed + 1, source: 'mock' };
+    return { completedTotal: Math.min(Math.floor(n / 2), 40), source: 'mock' };
   } catch {
-    return { completedTotal: 0, currentIdx: 0, availableIdx: 1, source: 'mock' };
+    return { completedTotal: 0, source: 'mock' };
   }
 }
 
 /**
  * 从知识图谱 JSON 构造单元：每个知识点 = 一个节点
  *
- * 点击节点 → 打开详情 → "开始闯关" 跳转到
- *   /practice/{unit}?kp={kp}
- * Practice 页读取 kp 参数后：
- *   - 从基础题库拉该单元的题（规则筛选）
- *   - 若 API Key 可用，追加 1~2 道 AI 按学生兴趣生成的题
+ * 规则（per-unit 独立判断）：
+ *   - **每个单元的第一个知识点永远可以探索**（available / current）
+ *   - 后续知识点需要前置完成才能解锁（locked → available）
+ *   - 全局 completedTotal 按单元顺序依次填充
  *
- * 节点状态根据 progress 动态计算，不再写死。
+ * 状态分配：
+ *   - i < completedInUnit → completed（按位置给 1~3 星）
+ *   - i === completedInUnit → 本单元"下一个要学"的节点：
+ *     * 如果是全局第一个未完成节点 → current（加特殊标记）
+ *     * 否则 → available
+ *   - i > completedInUnit → locked
  */
 function buildUnitsFromKnowledgeMap(km: RawKnowledgeMap, progress: Progress): MapUnit[] {
   const units: MapUnit[] = [];
-  let nodeCounter = 0;
+  let remaining = progress.completedTotal;
+  let currentMarked = false;
 
   let unitIdx = 0;
   for (const semesterName of ['上册', '下册']) {
     const semUnits = km.学期[semesterName] || [];
     for (const u of semUnits) {
       const cfg = UNIT_CFGS[unitIdx % UNIT_CFGS.length];
-      const nodes: MapNode[] = u.知识点.map((kp, ki) => {
-        const globalIdx = nodeCounter++;
+      const unitSize = u.知识点.length;
+      const completedInUnit = Math.min(unitSize, remaining);
+      remaining -= completedInUnit;
+
+      const nodes: MapNode[] = u.知识点.map((kp, i) => {
         let status: MapNode['status'] = 'locked';
         let stars = 0, attempts = 0;
-        if (globalIdx < progress.completedTotal) {
+
+        if (i < completedInUnit) {
+          // 已完成
           status = 'completed';
-          // 星星按相对位置分配（越早完成越稳）
-          const relative = globalIdx / Math.max(1, progress.completedTotal);
+          const relative = i / Math.max(1, completedInUnit);
           stars = relative < 0.4 ? 3 : relative < 0.75 ? 2 : 1;
           attempts = 2 + Math.floor(Math.random() * 6);
-        } else if (globalIdx === progress.currentIdx) {
-          status = 'current';
-          attempts = 0;
-        } else if (globalIdx === progress.availableIdx) {
-          status = 'available';
+        } else if (i === completedInUnit) {
+          // 本单元的"下一个要学" — 永远可访问
+          if (completedInUnit < unitSize) {
+            if (!currentMarked) {
+              status = 'current';
+              currentMarked = true;
+            } else {
+              status = 'available';
+            }
+          }
+        } else {
+          // 没有前置知识点 — 锁住
+          status = 'locked';
         }
+
         return {
-          id: `k${unitIdx + 1}-${ki + 1}`,
+          id: `k${unitIdx + 1}-${i + 1}`,
           name: kp,
           stars,
           status,
           attempts,
         };
       });
+
       units.push({
         id: `u${unitIdx + 1}`,
         name: u.单元,
