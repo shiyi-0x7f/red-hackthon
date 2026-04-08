@@ -546,11 +546,33 @@ export const interestService = {
         { kw: '奶奶', category: 'family', name: '奶奶' },
       ];
       const text_lower = text.toLowerCase();
-      const extracted = keywords
-        .filter((k) => text_lower.includes(k.kw.toLowerCase()))
-        .map((k) => ({ category: k.category, name: k.name, affinity: 0.8, notes: '（mock 抽取）' }));
+      // 关键词匹配 + 去重（按 category+name）
+      const seen = new Set<string>();
+      const extracted: Array<{ category: string; name: string; affinity: number; notes: string }> = [];
+      for (const k of keywords) {
+        if (!text_lower.includes(k.kw.toLowerCase())) continue;
+        const dedup = k.category + ':' + k.name;
+        if (seen.has(dedup)) continue;
+        seen.add(dedup);
+        extracted.push({ category: k.category, name: k.name, affinity: 0.8, notes: '（mock 抽取）' });
+      }
+      // 直接塞 mock store，source 标记为 extracted
       for (const it of extracted) {
-        await interestService.add(studentId, it.category as string, it.name as string, it.affinity as number);
+        const exists = MOCK_INTERESTS_STORE.find((x) => x.category === it.category && x.name === it.name);
+        if (exists) {
+          exists.affinity = Math.max(exists.affinity, it.affinity);
+          exists.source = 'extracted';
+        } else {
+          MOCK_INTERESTS_STORE.push({
+            id: _mockInterestId++,
+            category: it.category,
+            name: it.name,
+            affinity: it.affinity,
+            source: 'extracted',
+            notes: it.notes,
+            created_at: new Date().toISOString(),
+          });
+        }
       }
       return { extracted, inserted_count: extracted.length };
     }
