@@ -778,6 +778,39 @@
   font-style: italic;
 }
 
+/* 答题输入下方的 LaTeX 实时预览 */
+.answer-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-top: 8px;
+  background: linear-gradient(135deg, #FFF1E6, #FFF9EC);
+  border: 1px dashed #F5D9B8;
+  border-radius: 12px;
+  animation: answer-preview-fade 0.2s ease;
+}
+.answer-preview-label {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  background: var(--color-primary);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.answer-preview-content {
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+.answer-preview-content .katex {
+  font-size: 1.1em;
+}
+@keyframes answer-preview-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* 知识点副标题（Practice 头部） */
 .practice-kp-sep {
   color: var(--color-text-muted);

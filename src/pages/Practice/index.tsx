@@ -340,7 +340,29 @@ const MultiBlankInput: React.FC<{
   );
 };
 
-/** 单输入框（计算题等） — 带数学工具栏 */
+/** 把用户输入转成 LaTeX 预览字符串（a/b → \frac{a}{b}，百分数保留，数字直出） */
+function toLatexPreview(raw: string): string {
+  const s = raw.trim();
+  if (!s) return '';
+  // 多空/多分号拆分（多空题场景）
+  const parts = s.split(/[；;]/).map((p) => p.trim()).filter(Boolean);
+  const renderOne = (text: string): string => {
+    // a/b 或 -a/b
+    const fracMatch = text.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
+    if (fracMatch) {
+      return `\\frac{${fracMatch[1]}}{${fracMatch[2]}}`;
+    }
+    // 百分数 "50%"
+    if (/^-?\d+(?:\.\d+)?%$/.test(text)) {
+      return text.replace('%', '\\%');
+    }
+    // 比较运算符单独不渲染 LaTeX（> < =）
+    return text;
+  };
+  return parts.map(renderOne).join(' ;\\; ');
+}
+
+/** 单输入框（计算题等） — 带数学工具栏 + 实时 LaTeX 预览 */
 const SingleInput: React.FC<{
   placeholder: string;
   onSubmit: (answer: string) => void;
@@ -365,6 +387,10 @@ const SingleInput: React.FC<{
     inputRef.current?.focus();
   };
 
+  // 实时 LaTeX 预览
+  const latexPreview = toLatexPreview(value);
+  const showPreview = latexPreview && /\\frac|\\%/.test(latexPreview);
+
   return (
     <div className="answer-section">
       <div className="answer-input-wrapper">
@@ -379,6 +405,23 @@ const SingleInput: React.FC<{
           disabled={disabled}
         />
       </div>
+      {showPreview && (
+        <div className="answer-preview">
+          <span className="answer-preview-label">预览</span>
+          <span
+            className="answer-preview-content"
+            dangerouslySetInnerHTML={{
+              __html: (() => {
+                try {
+                  return katex.renderToString(latexPreview, { displayMode: false, throwOnError: false });
+                } catch {
+                  return latexPreview;
+                }
+              })(),
+            }}
+          />
+        </div>
+      )}
       <MathToolbar onInsert={insertText} showFraction={showFraction} />
       <button
         className="submit-answer-btn"

@@ -422,6 +422,77 @@ pub async fn submit_answer(
 // 判题工具
 // =============================================
 
+/// 从 LaTeX / 纯文本提取数值（支持 \frac / a/b / 百分数 / 纯数字）
+fn extract_numeric(raw: &str) -> Option<f64> {
+    // 先剥离常见 LaTeX 包裹
+    let s = raw
+        .replace('$', "")
+        .replace("\\,", "")
+        .replace("\\left", "")
+        .replace("\\right", "")
+        .replace("\\text{", "")
+        .replace("\\;", "")
+        .replace(" ", "");
+
+    // 1) \frac{num}{den}
+    if let Some(start) = s.find("\\frac{") {
+        let after = &s[start + 6..];
+        if let Some(end1) = after.find('}') {
+            let num_str = &after[..end1];
+            let rest = &after[end1 + 1..];
+            if let Some(rest_rest) = rest.strip_prefix('{') {
+                if let Some(end2) = rest_rest.find('}') {
+                    let den_str = &rest_rest[..end2];
+                    if let (Ok(num), Ok(den)) = (num_str.parse::<f64>(), den_str.parse::<f64>()) {
+                        if den.abs() > 1e-12 {
+                            return Some(num / den);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2) 纯 "a/b" 形式（先尝试整个）
+    if let Some(pos) = s.find('/') {
+        let (a, b) = (&s[..pos], &s[pos + 1..]);
+        // 清掉可能的尾部单位（如 "米", "千克", "%"）
+        let b_clean: String = b.chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
+        if !a.is_empty() && !b_clean.is_empty() {
+            if let (Ok(num), Ok(den)) = (a.parse::<f64>(), b_clean.parse::<f64>()) {
+                if den.abs() > 1e-12 {
+                    return Some(num / den);
+                }
+            }
+        }
+    }
+
+    // 3) 百分数 "50%" / "50\%"
+    let s_percent_stripped = s.replace("\\%", "%");
+    if s_percent_stripped.contains('%') {
+        let num_str: String = s_percent_stripped
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+            .collect();
+        if let Ok(n) = num_str.parse::<f64>() {
+            return Some(n / 100.0);
+        }
+    }
+
+    // 4) 带单位的纯数字 "4米" "31.4 厘米" — 提取前缀数字
+    let num_prefix: String = s
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
+        .collect();
+    if !num_prefix.is_empty() {
+        if let Ok(n) = num_prefix.parse::<f64>() {
+            return Some(n);
+        }
+    }
+
+    None
+}
+
 /// 规则判题
 ///
 /// 返回 ((is_correct, error_type, feedback), confident)
@@ -446,8 +517,20 @@ fn rule_judge(q: &crate::services::question_bank::BaseQuestion, student_answer: 
     let n_correct = normalize(correct_answer);
     let n_student = normalize(student_ans);
 
-    let is_correct = n_correct == n_student
-        || (!n_correct.is_empty() && (n_correct.contains(&n_student) || n_student.contains(&n_correct)) && n_student.len() >= 1);
+    // === 1) 优先做数值比较（解决 1/2 vs \frac{1}{2} 这类形式差异） ===
+    let numeric_correct = if let (Some(cv), Some(sv)) = (extract_numeric(correct_answer), extract_numeric(student_ans)) {
+        (cv - sv).abs() < 1e-4
+    } else {
+        false
+    };
+
+    // === 2) 字符串归一化比较兜底 ===
+    let string_correct = n_correct == n_student
+        || (!n_correct.is_empty() && !n_student.is_empty()
+            && (n_correct.contains(&n_student) || n_student.contains(&n_correct))
+            && n_student.len() as f64 >= n_correct.len() as f64 * 0.4);
+
+    let is_correct = numeric_correct || string_correct;
 
     let error_type = if is_correct {
         "none".to_string()
@@ -466,6 +549,39 @@ fn rule_judge(q: &crate::services::question_bank::BaseQuestion, student_answer: 
     };
 
     ((is_correct, error_type, feedback), !needs_llm)
+}
+
+#[cfg(test)]
+mod rule_judge_tests {
+    use super::extract_numeric;
+
+    #[test]
+    fn test_extract_frac() {
+        assert_eq!(extract_numeric("$\\frac{1}{2}$"), Some(0.5));
+        assert_eq!(extract_numeric("\\frac{3}{4}"), Some(0.75));
+        assert_eq!(extract_numeric("1/2"), Some(0.5));
+        assert_eq!(extract_numeric("3 / 4"), Some(0.75));
+    }
+
+    #[test]
+    fn test_frac_vs_plain_equiv() {
+        let a = extract_numeric("$\\frac{1}{2}$").unwrap();
+        let b = extract_numeric("1/2").unwrap();
+        assert!((a - b).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_percent() {
+        assert_eq!(extract_numeric("75%"), Some(0.75));
+        assert_eq!(extract_numeric("$75\\%$"), Some(0.75));
+    }
+
+    #[test]
+    fn test_with_unit() {
+        assert_eq!(extract_numeric("$4$ 米"), Some(4.0));
+        assert_eq!(extract_numeric("31.4 厘米"), Some(31.4));
+        assert_eq!(extract_numeric("18"), Some(18.0));
+    }
 }
 
 /// 清除学生所有学习数据
