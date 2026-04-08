@@ -1,8 +1,9 @@
 use tauri::State;
-use crate::state::AppState;
+use crate::state::{AppState, ChatPacingState};
 use crate::error::{AppError, AppResult};
 use crate::ai::llm_client::{Message, LLMOptions};
 use crate::ai::prompts;
+use crate::ai::safety;
 
 /// 发送聊天消息（JSON 结构化输出）
 #[tauri::command]
@@ -75,12 +76,65 @@ pub async fn send_chat_message(
     // 检查是否超出每日上限
     if remaining <= 0 {
         return Ok(serde_json::json!({
-            "reply": "今天聊天次数已经用完啦～明天再来找我聊天吧！现在可以去做做练习哦 📚",
+            "reply": "今天聊天次数已经用完啦～明天再来找我聊天吧！现在可以去做做练习哦",
             "chat_remaining": 0,
             "is_limited": true,
+            "limit_reason": "daily_quota",
             "is_stream": false,
         }));
     }
+
+    // === 节奏控制：5 分钟硬限 + 15 分钟冷却 ===
+    const MAX_CHAT_SECS: i64 = 300;        // 5 分钟一次会话
+    const COOLDOWN_SECS: i64 = 15 * 60;    // 15 分钟冷却
+
+    let mut entry = state.chat_pacing.entry(student_id.clone()).or_default();
+
+    // 1. 在冷却中？
+    if let Some(cool_start) = entry.cooldown_started_at {
+        let elapsed = (now - cool_start).num_seconds();
+        if elapsed < COOLDOWN_SECS {
+            let remain_min = (COOLDOWN_SECS - elapsed) / 60 + 1;
+            return Ok(serde_json::json!({
+                "reply": format!("我们刚才聊了挺多啦，先各自休息一下吧，{} 分钟后再来找我聊天 ✨", remain_min),
+                "chat_remaining": remaining,
+                "is_limited": true,
+                "limit_reason": "cooldown",
+                "cooldown_remaining_secs": COOLDOWN_SECS - elapsed,
+                "is_stream": false,
+            }));
+        } else {
+            // 冷却结束，重置
+            entry.cooldown_started_at = None;
+            entry.accumulated_secs = 0;
+            entry.session_started_at = None;
+        }
+    }
+
+    // 2. 启动或延长当前会话
+    if entry.session_started_at.is_none() {
+        entry.session_started_at = Some(now);
+        entry.accumulated_secs = 0;
+    }
+    let session_start = entry.session_started_at.unwrap();
+    let session_secs = (now - session_start).num_seconds();
+    entry.accumulated_secs = session_secs;
+
+    // 3. 5 分钟硬限触发 → 进入冷却
+    if session_secs >= MAX_CHAT_SECS {
+        entry.cooldown_started_at = Some(now);
+        let _msg_session_secs = session_secs;
+        drop(entry);
+        return Ok(serde_json::json!({
+            "reply": "我们已经聊了差不多 5 分钟啦～休息一下，等会再聊吧。要不要先去做几道题练练手？",
+            "chat_remaining": remaining,
+            "is_limited": true,
+            "limit_reason": "session_max",
+            "session_secs": _msg_session_secs,
+            "is_stream": false,
+        }));
+    }
+    drop(entry);
 
     // 保存用户消息
     {
@@ -171,11 +225,23 @@ pub async fn send_chat_message(
     // 尝试解析 JSON（LLM 可能返回 JSON 或纯文本）
     let parsed = parse_llm_reply(&reply);
 
-    // 保存 AI 回复（存纯文本）
-    let display_text = parsed.get("text")
+    // 取出回复正文
+    let raw_display = parsed.get("text")
         .and_then(|v| v.as_str())
         .unwrap_or(&reply)
         .to_string();
+
+    // === 安全过滤：禁用词 / 情感绑定 / 敏感内容升级 ===
+    let safety_result = safety::sanitize_output(&raw_display);
+    let display_text = if safety_result.is_safe {
+        raw_display
+    } else if safety_result.needs_escalation {
+        // 敏感内容 → 替换为标准引导语，并日志记录
+        tracing::warn!("[chat] 敏感内容触发，已替换为标准引导语");
+        "嗯…谢谢你跟我说这些。我们可以一起跟你信任的大人聊聊吗？或者先休息一会，做点你喜欢的事。".to_string()
+    } else {
+        safety_result.sanitized
+    };
     {
         let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
         let id = uuid::Uuid::new_v4().to_string();
@@ -185,11 +251,21 @@ pub async fn send_chat_message(
         )?;
     }
 
+    let session_secs_now = state
+        .chat_pacing
+        .get(&student_id)
+        .map(|e| e.accumulated_secs)
+        .unwrap_or(0);
+
     Ok(serde_json::json!({
         "reply": display_text,
         "structured": parsed,
         "chat_remaining": remaining - 1,
         "is_limited": false,
+        "session_secs": session_secs_now,
+        "session_max_secs": 300,
+        "needs_escalation": safety_result.needs_escalation,
+        "safety_violations": safety_result.violations.len(),
     }))
 }
 

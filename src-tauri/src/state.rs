@@ -38,6 +38,29 @@ pub struct AppState {
     pub llm_client: Mutex<Option<LLMClient>>,
     /// AI 动态生成的题目缓存（key=question_id），让 submit_answer 能找到
     pub ai_questions: DashMap<String, BaseQuestion>,
+    /// 对话节奏跟踪（key=student_id）
+    pub chat_pacing: DashMap<String, ChatPacingState>,
+}
+
+/// 对话节奏状态
+#[derive(Debug, Clone)]
+pub struct ChatPacingState {
+    /// 当前对话开始时间（None 表示无活跃对话）
+    pub session_started_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 当前对话累计秒数
+    pub accumulated_secs: i64,
+    /// 冷却开始时间（None 表示不在冷却中）
+    pub cooldown_started_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Default for ChatPacingState {
+    fn default() -> Self {
+        Self {
+            session_started_at: None,
+            accumulated_secs: 0,
+            cooldown_started_at: None,
+        }
+    }
 }
 
 impl AppState {
@@ -72,6 +95,7 @@ impl AppState {
             question_bank,
             llm_client: Mutex::new(llm_client),
             ai_questions: DashMap::new(),
+            chat_pacing: DashMap::new(),
         })
     }
 

@@ -3,6 +3,7 @@ use crate::state::AppState;
 use crate::error::{AppError, AppResult};
 use crate::ai::llm_client::{Message, LLMOptions};
 use crate::ai::prompts;
+use crate::ai::safety;
 
 /// 流式讲解 + 可视化生成
 ///
@@ -155,7 +156,16 @@ pub async fn generate_explanation_stream(
     };
 
     // === 4. 解析 visual spec ===
-    let (display_text, visual_spec) = parse_visual_spec(&full_text);
+    let (display_text_raw, visual_spec) = parse_visual_spec(&full_text);
+
+    // === 4.5 安全过滤（讲解正文）===
+    let safety_result = safety::sanitize_output(&display_text_raw);
+    let display_text = if safety_result.is_safe {
+        display_text_raw
+    } else {
+        tracing::warn!("[explain] LLM 讲解触发 {} 项安全规则，已清洗", safety_result.violations.len());
+        safety_result.sanitized
+    };
 
     // === 5. 写缓存 ===
     {
@@ -260,6 +270,12 @@ pub async fn get_layered_hint(
         }
     } else {
         fallback_hint(level, &question.content_latex)
+    };
+
+    // 安全过滤
+    let hint_text = {
+        let r = safety::sanitize_output(&hint_text);
+        if r.is_safe { hint_text } else { r.sanitized }
     };
 
     // 写 hint_records
