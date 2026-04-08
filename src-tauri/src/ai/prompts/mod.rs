@@ -321,53 +321,99 @@ pub fn generate_question(
     )
 }
 
-/// 讲解 + 可视化 Prompt — 让 LLM 流式输出讲解，并附带 JSXGraph/分数条 spec
+/// 纯讲解 Prompt — 只输出讲解 markdown，不生成任何 visual 代码块
 ///
-/// 输出格式约定（关键！）：
-/// - 先输出 markdown 讲解正文（4~6 段）
-/// - 最后追加一个 ```visual ... ``` 代码块，里面是 JSON
-pub fn explain_with_visual(question: &str, correct_answer: &str, grade: i32, unit: &str) -> String {
+/// 这是三层漏斗的第一层：先让 LLM 专注把题讲清楚，可视化问题交给后面
+/// 的 visual_plan + visual_render 两个 agent 决定。
+pub fn explain_text_only(question: &str, correct_answer: &str, grade: i32, unit: &str) -> String {
     format!(
-        "你是{grade}年级小学数学的讲解老师。请用学生能理解的方式讲解下面这道题，并配一个可视化图示帮助理解。\n\n\
+        "你是{grade}年级小学数学的讲解老师。请用学生能理解的方式讲解下面这道题。\n\n\
          题目：{question}\n\
          标准答案：{correct_answer}\n\
          单元：{unit}\n\n\
-         === 输出格式（严格遵守）===\n\
-         第一部分：用 4~6 段讲解（markdown），每段以「**第N步：xxx**」开头，语言活泼亲切，可以使用 LaTeX（用 $...$ 包裹），不要用 emoji。\n\n\
-         第二部分：在讲解之后，追加一个 ```visual 代码块，内容是一个 JSON 对象，描述一个能帮助理解题目的图示。可选 type：\n\n\
-         1. type=\"jsxgraph\"（用于几何/图形/函数题）：\n\
-            {{\n\
-              \"type\": \"jsxgraph\",\n\
-              \"title\": \"图示标题\",\n\
-              \"boundingBox\": [-5, 5, 5, -5],\n\
-              \"axis\": true,\n\
-              \"elements\": [\n\
-                {{\"kind\": \"point\", \"args\": [[0,0]], \"attrs\": {{\"name\":\"O\",\"color\":\"#7C5CFC\"}}}},\n\
-                {{\"kind\": \"circle\", \"args\": [[0,0], 3], \"attrs\": {{\"strokeColor\":\"#7C5CFC\"}}}},\n\
-                {{\"kind\": \"functiongraph\", \"args\": [\"x*x\", -3, 3], \"attrs\": {{\"strokeColor\":\"#54B5FF\"}}}}\n\
-              ]\n\
-            }}\n\
-            支持的 kind：point / line / segment / circle / polygon / functiongraph / text / arrow / angle\n\
-            args 直接对应 JSXGraph 的 board.create(kind, args, attrs)\n\n\
-         2. type=\"fraction-bar\"（用于分数 / 百分比题）：\n\
-            {{\n\
-              \"type\": \"fraction-bar\",\n\
-              \"title\": \"1/2 + 1/4 = ?\",\n\
-              \"parts\": [\n\
-                {{\"label\":\"1/2\", \"value\":0.5, \"color\":\"#7C5CFC\"}},\n\
-                {{\"label\":\"1/4\", \"value\":0.25, \"color\":\"#54B5FF\"}}\n\
-              ]\n\
-            }}\n\n\
-         3. type=\"none\"（如果题目无需可视化）：\n\
-            {{\"type\": \"none\"}}\n\n\
-         === 重要约束 ===\n\
-         - visual 代码块必须出现在讲解末尾，且只出现一次\n\
-         - JSON 必须语法合法，可被 JSON.parse 直接解析\n\
-         - 图示要简洁直观，元素不超过 6 个\n\
-         - 不要在 visual 中放整个题目的解答，只放概念图示",
+         === 输出要求（严格遵守）===\n\
+         - 用 4~6 段讲解，每段以「**第N步：xxx**」开头\n\
+         - 语言活泼亲切，像会数学的好朋友，不要用 emoji\n\
+         - 数学表达式用 $...$ 包裹（例如 $\\frac{{1}}{{2}}$），纯中文不要放 $ 内\n\
+         - **只输出 markdown 文本**，不要任何代码块、JSON、```visual、```json 或其他结构化内容\n\
+         - 不要在末尾追加可视化描述，可视化由其他 agent 处理",
         grade = grade,
         question = question,
         correct_answer = correct_answer,
-        unit = unit
+        unit = unit,
+    )
+}
+
+/// Agent 1 · 可视化规划 Prompt
+///
+/// 判断是否需要几何可视化，若需要则用自然语言描述要画什么。严格 JSON 输出。
+/// 即便外层预筛命中几何关键词，这里仍可以 override 为 needs_visual=false
+/// （例如题目里出现"面积"但其实是单位换算的代数题）。
+pub fn visual_plan(question: &str, correct_answer: &str, unit: &str) -> String {
+    format!(
+        "你是数学可视化规划师。判断下面这道小学数学题是否需要用一个可交互的\
+         几何图形（用 JSXGraph 渲染）帮学生理解。\n\n\
+         题目：{question}\n\
+         答案：{correct_answer}\n\
+         单元：{unit}\n\n\
+         === 严格 JSON 输出，不要 markdown 代码块包裹 ===\n\
+         {{\n\
+           \"needs_visual\": true/false,\n\
+           \"description\": \"如 needs_visual=true，用 1~2 句中文描述要画什么几何元素；否则留空\"\n\
+         }}\n\n\
+         === 判断规则 ===\n\
+         - **only geometry**：只有当题目的核心是几何图形（圆、三角形、多边形、立体、角度、坐标）\
+         且画一张图确实能帮助理解时，才 needs_visual=true\n\
+         - 纯分数 / 整数 / 小数 / 百分数**运算题** → needs_visual=false（比如 $\\frac{{3}}{{5}} \\times 10$）\n\
+         - 位置与方向 / 路线规划 → needs_visual=false（用文字描述更清楚）\n\
+         - 应用题如果核心不是几何图形（比如工程问题、行程问题）→ needs_visual=false\n\
+         - 统计图 / 扇形统计图类 → needs_visual=false（数据太特殊，不适合 JSXGraph）\n\
+         - 仅出现「面积 / 周长 / 体积」但实际是公式代入的代数计算 → needs_visual=false\n\n\
+         === description 示例 ===\n\
+         - 「画一个半径为 5 的圆，在圆心 O 和圆上一点 A 之间画一条半径，标注 r=5」\n\
+         - 「画一个直角三角形，三条边分别标注 3, 4, 5」\n\
+         - 「画一个圆柱的示意图，标注底面半径 3 和高 10」",
+        question = question,
+        correct_answer = correct_answer,
+        unit = unit,
+    )
+}
+
+/// Agent 2 · JSXGraph 渲染 Prompt
+///
+/// 把自然语言描述翻译成合法的 JSXGraph elements JSON。
+/// 只在 Agent 1 返回 needs_visual=true 时调用。
+pub fn visual_render(description: &str) -> String {
+    format!(
+        "你是 JSXGraph 可视化专家。根据下面的描述生成一个 JSXGraph 图示规格。\n\n\
+         描述：{description}\n\n\
+         === 严格 JSON 输出，不要 markdown 代码块包裹 ===\n\
+         {{\n\
+           \"type\": \"jsxgraph\",\n\
+           \"title\": \"图示标题（10 字内）\",\n\
+           \"boundingBox\": [xmin, ymax, xmax, ymin],\n\
+           \"axis\": true,\n\
+           \"elements\": [\n\
+             {{\"kind\": \"...\", \"args\": [...], \"attrs\": {{...}}}}\n\
+           ]\n\
+         }}\n\n\
+         === 支持的 kind（board.create 第一个参数）===\n\
+         - point    : args=[[x,y]], attrs={{\"name\":\"A\",\"color\":\"#FF8C42\"}}\n\
+         - segment  : args=[[x1,y1],[x2,y2]], attrs={{\"strokeColor\":\"#00B5C8\",\"strokeWidth\":2}}\n\
+         - line     : args=[[x1,y1],[x2,y2]], attrs={{}}\n\
+         - circle   : args=[[cx,cy], r], attrs={{\"strokeColor\":\"#FF8C42\",\"fillColor\":\"#FFF1E6\",\"fillOpacity\":0.5}}\n\
+         - polygon  : args=[[[x1,y1],[x2,y2],[x3,y3]]], attrs={{\"fillColor\":\"#FFF1E6\"}}\n\
+         - angle    : args=[[x1,y1],[x2,y2],[x3,y3]], attrs={{\"radius\":1}}\n\
+         - text     : args=[x, y, \"内容\"], attrs={{\"fontSize\":14}}\n\
+         - arrow    : args=[[x1,y1],[x2,y2]], attrs={{}}\n\
+         - functiongraph : args=[\"x*x\", xmin, xmax], attrs={{}}\n\n\
+         === 约束 ===\n\
+         - elements 数组不超过 6 项\n\
+         - boundingBox 要让所有元素自然居中，四周留 1~2 单位空白\n\
+         - 所有颜色用十六进制（#FF8C42 暖橙 / #00B5C8 湖青 / #F5A623 金黄 / #5BC97F 绿）\n\
+         - 点名用大写字母（A/B/C/O），标注简洁\n\
+         - 只返回 JSON，不要解释、不要 markdown、不要 ```json\n\
+         - 如果描述里的几何无法用上述 kind 表达，输出 {{\"type\": \"none\"}}",
+        description = description,
     )
 }

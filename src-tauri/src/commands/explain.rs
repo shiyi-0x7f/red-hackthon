@@ -98,32 +98,32 @@ pub async fn generate_explanation_stream(
         })
         .unwrap_or(6);
 
-    let prompt = prompts::explain_with_visual(
+    // === 3a. 流式讲解（第一层：explain_text_only，纯 markdown，不含 visual 块） ===
+    let explain_prompt = prompts::explain_text_only(
         &question.content_latex,
         &question.answer_latex,
         grade,
         &question.unit,
     );
 
-    let full_text = if let Some(llm) = llm_clone {
+    let display_text_raw = if let Some(ref llm) = llm_clone {
         let messages = vec![
             Message {
                 role: "system".to_string(),
-                content: "你是一个小学数学讲解老师，请按用户给定格式输出讲解和可视化。".to_string(),
+                content: "你是一个小学数学讲解老师，只输出 markdown 讲解，不生成任何可视化代码块。".to_string(),
             },
             Message {
                 role: "user".to_string(),
-                content: prompt,
+                content: explain_prompt,
             },
         ];
 
         let opts = LLMOptions {
             temperature: Some(0.6),
-            max_tokens: Some(1500),
+            max_tokens: Some(1200),
             top_p: Some(0.9),
         };
 
-        // 流式回调：每 chunk emit
         let app_clone = app.clone();
         let req_id_clone = request_id.clone();
         let stream_result = llm
@@ -147,7 +147,6 @@ pub async fn generate_explanation_stream(
         }
     } else {
         let text = fallback_explanation(&question.unit, &question.content_latex, &question.answer_latex);
-        // 一次性发送给前端，模拟流式
         let _ = app.emit(
             "explanation:chunk",
             serde_json::json!({ "request_id": request_id, "delta": text }),
@@ -155,16 +154,88 @@ pub async fn generate_explanation_stream(
         text
     };
 
-    // === 4. 解析 visual spec ===
-    let (display_text_raw, visual_spec) = parse_visual_spec(&full_text);
-
-    // === 4.5 安全过滤（讲解正文）===
+    // === 4. 安全过滤（讲解正文）===
     let safety_result = safety::sanitize_output(&display_text_raw);
     let display_text = if safety_result.is_safe {
         display_text_raw
     } else {
         tracing::warn!("[explain] LLM 讲解触发 {} 项安全规则，已清洗", safety_result.violations.len());
         safety_result.sanitized
+    };
+
+    // === 4a. 可视化三层漏斗 ===
+    let visual_spec: Option<serde_json::Value> = if !is_geometric_question(&question.content_latex) {
+        // 第一层：关键词预筛 — 非几何题直接跳过，省两次 LLM 调用
+        tracing::debug!("[explain] 非几何题，跳过 visual agents");
+        None
+    } else if let Some(llm) = llm_clone.clone() {
+        // 第二层：Agent 1 规划
+        tracing::debug!("[explain] 几何题命中关键词，调用 visual_plan agent");
+        let plan_prompt = prompts::visual_plan(
+            &question.content_latex,
+            &question.answer_latex,
+            &question.unit,
+        );
+        let plan_messages = vec![
+            Message { role: "system".to_string(), content: "你必须严格 JSON 输出。".to_string() },
+            Message { role: "user".to_string(), content: plan_prompt },
+        ];
+        let plan_opts = LLMOptions { temperature: Some(0.2), max_tokens: Some(200), top_p: Some(0.9) };
+
+        match llm.complete(&plan_messages, &plan_opts).await {
+            Ok(raw) => {
+                let plan_json = parse_json_loose(&raw);
+                let needs = plan_json.as_ref()
+                    .and_then(|v| v.get("needs_visual"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let description = plan_json.as_ref()
+                    .and_then(|v| v.get("description"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+
+                if !needs || description.is_empty() {
+                    tracing::debug!("[explain] visual_plan 返回 needs_visual=false");
+                    None
+                } else {
+                    // 第三层：Agent 2 渲染
+                    tracing::debug!("[explain] visual_plan 描述: {}, 调用 visual_render", description);
+                    let render_prompt = prompts::visual_render(&description);
+                    let render_messages = vec![
+                        Message { role: "system".to_string(), content: "你必须严格 JSON 输出。".to_string() },
+                        Message { role: "user".to_string(), content: render_prompt },
+                    ];
+                    let render_opts = LLMOptions { temperature: Some(0.4), max_tokens: Some(700), top_p: Some(0.9) };
+
+                    match llm.complete(&render_messages, &render_opts).await {
+                        Ok(raw2) => {
+                            let rendered = parse_json_loose(&raw2);
+                            match rendered {
+                                Some(v) if v.get("type").and_then(|t| t.as_str()) == Some("jsxgraph") => {
+                                    Some(v)
+                                }
+                                _ => {
+                                    tracing::warn!("[explain] visual_render 未返回合法 jsxgraph JSON");
+                                    None
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("[explain] visual_render LLM 失败: {}", e);
+                            None
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("[explain] visual_plan LLM 失败: {}", e);
+                None
+            }
+        }
+    } else {
+        None
     };
 
     // === 5. 写缓存 ===
@@ -308,38 +379,67 @@ pub async fn get_layered_hint(
 // 工具函数
 // =============================================
 
-/// 从 LLM 完整输出中分离讲解正文 + visual JSON
-fn parse_visual_spec(full: &str) -> (String, Option<serde_json::Value>) {
-    // 查找 ```visual 块
-    if let Some(start) = full.find("```visual") {
-        let after = &full[start + 9..];
-        if let Some(end) = after.find("```") {
-            let json_str = after[..end].trim();
-            let display = full[..start].trim_end().to_string();
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
-                return (display, Some(v));
-            }
-            tracing::warn!("visual 块解析失败: {}", &json_str[..json_str.len().min(120)]);
-            return (display, None);
-        }
-    }
-    // 兼容：未指定 visual 但有 ```json 块
-    if let Some(start) = full.find("```json") {
-        let after = &full[start + 7..];
-        if let Some(end) = after.find("```") {
-            let json_str = after[..end].trim();
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(json_str) {
-                if v.get("type").is_some() {
-                    let display = full[..start].trim_end().to_string();
-                    return (display, Some(v));
-                }
-            }
-        }
-    }
-    (full.to_string(), None)
+/// 几何题关键词预筛
+///
+/// 命中任一关键词即视为"潜在几何题"，会进入 Agent 1（仍可被 LLM override
+/// 为 needs_visual=false）。全部未命中则直接跳过 Agent 1 + Agent 2，省两次
+/// LLM 调用。
+const GEOMETRY_KEYWORDS: &[&str] = &[
+    // 圆系
+    "圆", "半径", "直径", "圆周率", "扇形", "圆环",
+    // 多边形
+    "三角形", "四边形", "五边形", "六边形", "多边形",
+    "正方形", "长方形", "平行四边形", "梯形", "菱形",
+    "边长", "对角线",
+    // 立体
+    "立方体", "长方体", "正方体", "圆柱", "圆锥", "球",
+    "棱", "顶点", "底面", "侧面",
+    // 角度 / 位置关系
+    "角度", "度数", "平行", "垂直",
+    // 量度
+    "周长", "面积", "表面积", "体积",
+    // 其他
+    "坐标系", "几何", "图形", "画图",
+];
+
+pub(crate) fn is_geometric_question(content: &str) -> bool {
+    GEOMETRY_KEYWORDS.iter().any(|k| content.contains(k))
 }
 
-/// LLM 不可用时的兜底讲解
+/// 宽松解析 JSON：支持裸 JSON / ```json 代码块 / 花括号范围提取
+fn parse_json_loose(raw: &str) -> Option<serde_json::Value> {
+    let trimmed = raw.trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        return Some(v);
+    }
+    if let Some(start) = trimmed.find("```json") {
+        let after = &trimmed[start + 7..];
+        if let Some(end) = after.find("```") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(after[..end].trim()) {
+                return Some(v);
+            }
+        }
+    }
+    if let Some(start) = trimmed.find("```") {
+        let after = &trimmed[start + 3..];
+        let after = if let Some(nl) = after.find('\n') { &after[nl + 1..] } else { after };
+        if let Some(end) = after.find("```") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(after[..end].trim()) {
+                return Some(v);
+            }
+        }
+    }
+    if let (Some(s), Some(e)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&trimmed[s..=e]) {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+/// LLM 不可用时的兜底讲解（纯 markdown，无 visual 块）
 fn fallback_explanation(unit: &str, _content: &str, answer: &str) -> String {
     format!(
         "**第一步：审清题意**\n\
@@ -350,13 +450,52 @@ fn fallback_explanation(unit: &str, _content: &str, answer: &str) -> String {
          按照方法一步一步把式子写出来，注意符号和单位。\n\n\
          **第四步：核对答案**\n\
          算完之后回头检查一下，看看答案是否合理。\n\n\
-         **正确答案**：{answer}\n\n\
-         ```visual\n\
-         {{\"type\": \"none\"}}\n\
-         ```",
+         **正确答案**：{answer}",
         unit = unit,
         answer = answer
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_geometric_true_cases() {
+        assert!(is_geometric_question("一个圆的半径是 5 厘米，求周长"));
+        assert!(is_geometric_question("三角形内角和是多少"));
+        assert!(is_geometric_question("正方体的表面积"));
+        assert!(is_geometric_question("圆柱的体积"));
+        assert!(is_geometric_question("求长方形的边长"));
+        assert!(is_geometric_question("两条直线互相垂直"));
+    }
+
+    #[test]
+    fn test_is_geometric_false_cases() {
+        assert!(!is_geometric_question("计算：$\\frac{3}{5} \\times 10 = ?$"));
+        assert!(!is_geometric_question("一根绳子长 12 米，第一次用去 1/3"));
+        assert!(!is_geometric_question("小明骑车每小时行 15 千米"));
+        assert!(!is_geometric_question("甲比乙多 25%，乙是甲的百分之几？"));
+        assert!(!is_geometric_question("5 比 4 多几分之几？"));
+    }
+
+    #[test]
+    fn test_parse_json_loose_bare() {
+        let v = parse_json_loose("{\"a\":1}").unwrap();
+        assert_eq!(v["a"], 1);
+    }
+
+    #[test]
+    fn test_parse_json_loose_fenced() {
+        let v = parse_json_loose("prefix\n```json\n{\"a\":2}\n```\nsuffix").unwrap();
+        assert_eq!(v["a"], 2);
+    }
+
+    #[test]
+    fn test_parse_json_loose_loose_braces() {
+        let v = parse_json_loose("some text before {\"a\":3} some after").unwrap();
+        assert_eq!(v["a"], 3);
+    }
 }
 
 fn fallback_hint(level: i32, _content: &str) -> String {
