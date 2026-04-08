@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{State, AppHandle, Emitter};
 use crate::state::{AppState, ChatPacingState};
 use crate::error::{AppError, AppResult};
 use crate::ai::llm_client::{Message, LLMOptions};
@@ -709,4 +709,282 @@ fn retrieve_learning_context(
     }
 
     Ok(context_parts.join("\n"))
+}
+
+// =============================================
+// 流式对话（为 Live2D / 语音等实时交互预留）
+// =============================================
+
+/// 流式发送聊天消息
+///
+/// 行为：
+/// 1. 同样走节奏控制 + 每日上限 + 冷却检查（达到限制直接返回 limit 响应，不发流）
+/// 2. 同步 RAG 上下文（学习数据 + 兴趣背景）
+/// 3. 调 llm.complete_stream，每个 token emit `chat:chunk` 事件
+/// 4. 全部收到后用 safety::sanitize_output 清洗
+///    - 敏感内容触发升级：替换为标准引导语，通过 `chat:done` 告知前端需要重来
+/// 5. emit `chat:done` 携带完整消息 + 节奏元数据 + 安全状态
+/// 6. 写 chat_records（user + assistant 两条）
+///
+/// 事件 payload：
+/// - `chat:chunk` { request_id, delta }
+/// - `chat:done`  { request_id, full_text, chat_remaining, is_limited, limit_reason,
+///                  session_secs, session_max_secs, needs_escalation, from_llm }
+///
+/// 注意：这是"预留接口"。Home 页当前仍走非流式 send_chat_message，
+/// Live2D 集成时前端再切到这个命令。
+#[tauri::command]
+pub async fn send_chat_message_stream(
+    app: AppHandle,
+    request_id: String,
+    student_id: String,
+    message: String,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    tracing::info!("流式对话: student={} req={} msg={:?}", student_id, request_id, &message.chars().take(20).collect::<String>());
+    let now = chrono::Utc::now();
+
+    // === 1. 自动创建学生 + 取年级 ===
+    let grade = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let existing: Option<i32> = db.query_row(
+            "SELECT grade FROM students WHERE id = ?1",
+            rusqlite::params![student_id],
+            |row| row.get(0),
+        ).ok();
+        if let Some(g) = existing { g } else {
+            let _ = db.execute(
+                "INSERT OR IGNORE INTO students (id, name, grade, created_at, updated_at)
+                 VALUES (?1, '小明', 6, datetime('now'), datetime('now'))",
+                rusqlite::params![student_id],
+            );
+            6
+        }
+    };
+
+    // === 2. 节奏控制检查（复用非流式的策略） ===
+    let today_count: i64 = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let today = now.format("%Y-%m-%d").to_string();
+        db.query_row(
+            "SELECT COUNT(*) FROM chat_records WHERE student_id = ?1 AND role = 'user' AND created_at LIKE ?2",
+            rusqlite::params![student_id, format!("{}%", today)],
+            |row| row.get(0),
+        ).unwrap_or(0)
+    };
+
+    let max_daily_chats = 20;
+    let remaining = (max_daily_chats - today_count).max(0);
+    if remaining <= 0 {
+        let payload = serde_json::json!({
+            "request_id": request_id,
+            "full_text": "今天聊天次数已经用完啦～明天再来找我聊天吧！",
+            "chat_remaining": 0,
+            "is_limited": true,
+            "limit_reason": "daily_quota",
+            "needs_escalation": false,
+        });
+        let _ = app.emit("chat:done", &payload);
+        return Ok(payload);
+    }
+
+    // 5 分钟硬限 + 15 分钟冷却
+    const MAX_CHAT_SECS: i64 = 300;
+    const COOLDOWN_SECS: i64 = 15 * 60;
+    let mut entry = state.chat_pacing.entry(student_id.clone()).or_default();
+
+    if let Some(cool_start) = entry.cooldown_started_at {
+        let elapsed = (now - cool_start).num_seconds();
+        if elapsed < COOLDOWN_SECS {
+            let remain_min = (COOLDOWN_SECS - elapsed) / 60 + 1;
+            let text = format!("我们刚才聊了挺多啦，先各自休息一下吧，{} 分钟后再来找我聊天 ✨", remain_min);
+            let payload = serde_json::json!({
+                "request_id": request_id,
+                "full_text": text,
+                "chat_remaining": remaining,
+                "is_limited": true,
+                "limit_reason": "cooldown",
+                "cooldown_remaining_secs": COOLDOWN_SECS - elapsed,
+                "needs_escalation": false,
+            });
+            let _ = app.emit("chat:done", &payload);
+            return Ok(payload);
+        } else {
+            entry.cooldown_started_at = None;
+            entry.accumulated_secs = 0;
+            entry.session_started_at = None;
+        }
+    }
+
+    if entry.session_started_at.is_none() {
+        entry.session_started_at = Some(now);
+        entry.accumulated_secs = 0;
+    }
+    let session_start = entry.session_started_at.unwrap();
+    let session_secs = (now - session_start).num_seconds();
+    entry.accumulated_secs = session_secs;
+
+    if session_secs >= MAX_CHAT_SECS {
+        entry.cooldown_started_at = Some(now);
+        let saved_secs = session_secs;
+        drop(entry);
+        let text = "我们已经聊了差不多 5 分钟啦～休息一下，等会再聊吧。要不要先去做几道题练练手？".to_string();
+        let payload = serde_json::json!({
+            "request_id": request_id,
+            "full_text": text,
+            "chat_remaining": remaining,
+            "is_limited": true,
+            "limit_reason": "session_max",
+            "session_secs": saved_secs,
+            "session_max_secs": MAX_CHAT_SECS,
+            "needs_escalation": false,
+        });
+        let _ = app.emit("chat:done", &payload);
+        return Ok(payload);
+    }
+    drop(entry);
+
+    // === 3. 写 user 消息（立即写，即便 LLM 失败也留痕）===
+    {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let _ = db.execute(
+            "INSERT INTO chat_records (id, student_id, role, content, context_type, created_at)
+             VALUES (?1, ?2, 'user', ?3, 'casual', ?4)",
+            rusqlite::params![id, student_id, message, now.to_rfc3339()],
+        );
+    }
+
+    // === 4. 取历史 + RAG 上下文 ===
+    let history = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut msgs: Vec<Message> = Vec::new();
+        if let Ok(mut stmt) = db.prepare(
+            "SELECT role, content FROM chat_records WHERE student_id = ?1 ORDER BY created_at DESC LIMIT 6"
+        ) {
+            if let Ok(rows) = stmt.query_map(rusqlite::params![student_id], |row| {
+                Ok(Message {
+                    role: row.get::<_, String>(0)?,
+                    content: row.get::<_, String>(1)?,
+                })
+            }) {
+                for row in rows.flatten() { msgs.push(row); }
+            }
+        }
+        msgs.reverse();
+        msgs
+    };
+
+    let learning_context = retrieve_learning_context(&state, &student_id, &message)?;
+    let interest_context = build_interest_context(&state, &student_id);
+
+    // === 5. LLM 流式调用 ===
+    let llm_clone = {
+        let guard = state.llm_client.lock().map_err(|e: std::sync::PoisonError<_>| AppError::Internal(e.to_string()))?;
+        guard.clone()
+    };
+
+    let (full_text_raw, from_llm) = if let Some(llm) = llm_clone {
+        let mut messages = vec![Message {
+            role: "system".to_string(),
+            content: prompts::system_persona_stream(grade),
+        }];
+        if !learning_context.is_empty() {
+            messages.push(Message {
+                role: "system".to_string(),
+                content: format!("学生学习数据：\n{}", learning_context),
+            });
+        }
+        if !interest_context.is_empty() {
+            messages.push(Message {
+                role: "system".to_string(),
+                content: format!("学生兴趣背景（自然融入回复）：\n{}", interest_context),
+            });
+        }
+        for msg in &history {
+            messages.push(msg.clone());
+        }
+        messages.push(Message {
+            role: "user".to_string(),
+            content: message.clone(),
+        });
+
+        let opts = LLMOptions {
+            temperature: Some(0.8),
+            max_tokens: Some(250),
+            top_p: Some(0.9),
+        };
+
+        let app_clone = app.clone();
+        let req_id_clone = request_id.clone();
+        match llm.complete_stream(&messages, &opts, move |delta| {
+            let _ = app_clone.emit(
+                "chat:chunk",
+                serde_json::json!({ "request_id": req_id_clone, "delta": delta }),
+            );
+        }).await {
+            Ok(t) => (t, true),
+            Err(e) => {
+                tracing::warn!("流式对话 LLM 失败: {}, 走兜底", e);
+                let fb = generate_fallback_reply(&message, grade);
+                // 把兜底也通过 emit 一次性发出去
+                let _ = app.emit("chat:chunk", serde_json::json!({
+                    "request_id": request_id,
+                    "delta": fb,
+                }));
+                (fb, false)
+            }
+        }
+    } else {
+        let fb = generate_fallback_reply(&message, grade);
+        // 没 LLM 时一次性 emit 兜底
+        let _ = app.emit("chat:chunk", serde_json::json!({
+            "request_id": request_id,
+            "delta": fb,
+        }));
+        (fb, false)
+    };
+
+    // === 6. 安全过滤 ===
+    let safety_result = safety::sanitize_output(&full_text_raw);
+    let final_text = if safety_result.is_safe {
+        full_text_raw
+    } else if safety_result.needs_escalation {
+        tracing::warn!("[chat stream] 敏感内容触发，替换为标准引导语");
+        "嗯…谢谢你跟我说这些。我们可以一起跟你信任的大人聊聊吗？或者先休息一会，做点你喜欢的事。".to_string()
+    } else {
+        safety_result.sanitized
+    };
+
+    // === 7. 写 assistant 回复 ===
+    {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let _ = db.execute(
+            "INSERT INTO chat_records (id, student_id, role, content, context_type, created_at)
+             VALUES (?1, ?2, 'assistant', ?3, 'casual', ?4)",
+            rusqlite::params![id, student_id, final_text, now.to_rfc3339()],
+        );
+    }
+
+    // === 8. 获取更新后的 session_secs ===
+    let session_secs_now = state.chat_pacing.get(&student_id)
+        .map(|e| e.accumulated_secs)
+        .unwrap_or(0);
+
+    // === 9. emit done ===
+    let payload = serde_json::json!({
+        "request_id": request_id,
+        "full_text": final_text,
+        "chat_remaining": remaining - 1,
+        "is_limited": false,
+        "session_secs": session_secs_now,
+        "session_max_secs": MAX_CHAT_SECS,
+        "needs_escalation": safety_result.needs_escalation,
+        "safety_violations": safety_result.violations.len(),
+        "from_llm": from_llm,
+    });
+    let _ = app.emit("chat:done", &payload);
+
+    Ok(payload)
 }

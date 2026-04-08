@@ -412,7 +412,127 @@ const CHAT_FALLBACK_REPLIES = [
 let _chatReplyIdx = 0;
 let _chatSessionStart = 0;
 
+/** 流式对话事件 payload（与后端 `chat:done` 对应） */
+export interface ChatStreamDonePayload {
+  request_id: string;
+  full_text: string;
+  chat_remaining: number;
+  is_limited: boolean;
+  limit_reason?: string;
+  session_secs?: number;
+  session_max_secs?: number;
+  cooldown_remaining_secs?: number;
+  needs_escalation: boolean;
+  safety_violations?: number;
+  from_llm?: boolean;
+}
+
 export const chatService = {
+  /**
+   * 流式发送聊天消息（预留给 Live2D / 语音等实时交互使用）
+   *
+   * 用法：
+   * ```ts
+   * const requestId = 'chat-' + Date.now();
+   * const { removeChunk, removeDone } = await chatService.subscribeStream(
+   *   requestId,
+   *   (delta) => live2d.appendSpeech(delta),
+   *   (payload) => live2d.finishSpeech(payload),
+   * );
+   * try {
+   *   await chatService.sendMessageStream(requestId, 'default-student', '你好');
+   * } finally {
+   *   removeChunk(); removeDone();
+   * }
+   * ```
+   */
+  sendMessageStream: async (
+    requestId: string,
+    studentId: string,
+    message: string,
+  ): Promise<ChatStreamDonePayload> => {
+    if (!isTauri()) {
+      // 浏览器 mock：构造 payload 并向订阅者派发 CustomEvent
+      const fakeReply = `我听到你说"${message.slice(0, 8)}${message.length > 8 ? '…' : ''}"啦～我们一起想想这个问题吧！`;
+      const payload: ChatStreamDonePayload = {
+        request_id: requestId,
+        full_text: fakeReply,
+        chat_remaining: 19,
+        is_limited: false,
+        session_secs: 5,
+        session_max_secs: 300,
+        needs_escalation: false,
+        from_llm: false,
+      };
+      // 微任务让 subscribe 的 listener 先挂好（如果先 subscribe 后 send）
+      await new Promise((r) => setTimeout(r, 0));
+      window.dispatchEvent(new CustomEvent('__mock_chat_done', { detail: payload }));
+      return payload;
+    }
+    return invoke<ChatStreamDonePayload>('send_chat_message_stream', {
+      requestId, studentId, message,
+    });
+  },
+
+  /**
+   * 订阅流式对话事件
+   *
+   * 返回 { removeChunk, removeDone }，务必在组件卸载时调用
+   */
+  async subscribeStream(
+    requestId: string,
+    onChunk: (delta: string) => void,
+    onDone: (payload: ChatStreamDonePayload) => void,
+  ): Promise<{ removeChunk: () => void; removeDone: () => void }> {
+    if (!isTauri()) {
+      // 浏览器 mock：在 sendMessageStream 解析后手动模拟
+      let cancelled = false;
+      let timers: number[] = [];
+      const simulate = (text: string) => {
+        if (cancelled) return;
+        // 每 60ms 吐一个字
+        Array.from(text).forEach((ch, i) => {
+          timers.push(window.setTimeout(() => {
+            if (!cancelled) onChunk(ch);
+          }, i * 60));
+        });
+      };
+      // 暴露给 mock sendMessageStream 捕获 full_text 的 hack
+      const mockListener = (e: Event) => {
+        const ev = e as CustomEvent<ChatStreamDonePayload>;
+        if (ev.detail.request_id !== requestId) return;
+        simulate(ev.detail.full_text);
+        window.setTimeout(() => {
+          if (!cancelled) onDone(ev.detail);
+        }, ev.detail.full_text.length * 60 + 100);
+      };
+      window.addEventListener('__mock_chat_done', mockListener as EventListener);
+      return {
+        removeChunk: () => {
+          cancelled = true;
+          timers.forEach((t) => clearTimeout(t));
+        },
+        removeDone: () => {
+          window.removeEventListener('__mock_chat_done', mockListener as EventListener);
+        },
+      };
+    }
+    const { listen } = await import('@tauri-apps/api/event');
+    const unlistenChunk = await listen<{ request_id: string; delta: string }>(
+      'chat:chunk',
+      (e) => {
+        if (e.payload.request_id === requestId) onChunk(e.payload.delta);
+      },
+    );
+    const unlistenDone = await listen<ChatStreamDonePayload>(
+      'chat:done',
+      (e) => {
+        if (e.payload.request_id === requestId) onDone(e.payload);
+      },
+    );
+    return { removeChunk: unlistenChunk, removeDone: unlistenDone };
+  },
+
   sendMessage: async (_studentId: string, _message: string) => {
     if (isTauri()) {
       return invoke('send_chat_message', { studentId: _studentId, message: _message });

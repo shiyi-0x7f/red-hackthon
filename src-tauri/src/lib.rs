@@ -77,6 +77,7 @@ pub fn run() {
             commands::pacing::get_pacing_status,
             // 对话
             commands::chat::send_chat_message,
+            commands::chat::send_chat_message_stream,
             commands::chat::get_chat_history,
             // 家长端
             commands::parent::verify_parent_password,
