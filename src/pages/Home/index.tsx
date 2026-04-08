@@ -390,24 +390,24 @@ const HomePage: React.FC = () => {
               icon: <BookOutlined />,
               title: '开始学习',
               desc: '继续你的数学冒险',
-              color: '#7C5CFC',
-              gradient: 'linear-gradient(135deg, #7C5CFC 0%, #9B7FFF 100%)',
+              color: '#FF8C42',
+              gradient: 'linear-gradient(135deg, #FF8C42 0%, #FFA86A 100%)',
               path: '/learn',
             },
             {
               icon: <RedoOutlined />,
               title: '复习旧知',
               desc: '巩固已学的内容',
-              color: '#4ECDC4',
-              gradient: 'linear-gradient(135deg, #4ECDC4 0%, #7EDDD6 100%)',
+              color: '#5BC97F',
+              gradient: 'linear-gradient(135deg, #5BC97F 0%, #A0DEB4 100%)',
               path: '/review',
             },
             {
               icon: <MessageOutlined />,
               title: '跟我聊聊',
               desc: '随便聊点什么',
-              color: '#FFB647',
-              gradient: 'linear-gradient(135deg, #FFB647 0%, #FFD08A 100%)',
+              color: '#F5A623',
+              gradient: 'linear-gradient(135deg, #F5A623 0%, #F8C46A 100%)',
               action: () => {
                 if (!chatOpen) setChatOpen(true);
                 // 聚焦到输入框

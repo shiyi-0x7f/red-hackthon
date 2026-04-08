@@ -775,8 +775,8 @@ const SummaryView: React.FC<{
             <svg width="100" height="100" viewBox="0 0 100 100">
               <defs>
                 <linearGradient id="accuracyGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#7C5CFC" />
-                  <stop offset="100%" stopColor="#54B5FF" />
+                  <stop offset="0%" stopColor="#FF8C42" />
+                  <stop offset="100%" stopColor="#00B5C8" />
                 </linearGradient>
               </defs>
               <circle className="accuracy-ring-bg" cx="50" cy="50" r="42" />

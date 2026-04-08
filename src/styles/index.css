@@ -3,44 +3,58 @@
    面向小学生的活泼、温暖、有趣的视觉体验
    ======================================== */
 
-/* --- CSS 变量 / 设计令牌 --- */
+/* --- CSS 变量 / 设计令牌 — 阳光橙 + 湖水青互补色主题 --- */
 :root {
-  /* 主色�?�?梦幻�?*/
-  --color-primary: #7C5CFC;
-  --color-primary-light: #9B7FFF;
-  --color-primary-lighter: #C4B5FD;
-  --color-primary-bg: #F0EDFF;
-  --color-primary-gradient: linear-gradient(135deg, #7C5CFC 0%, #9B7FFF 100%);
+  /* 主色 · 阳光橙（温暖活泼，主导一切关键交互） */
+  --color-primary: #FF8C42;
+  --color-primary-light: #FFA86A;
+  --color-primary-lighter: #FFC8A1;
+  --color-primary-bg: #FFF1E6;
+  --color-primary-gradient: linear-gradient(135deg, #FF8C42 0%, #FFA86A 100%);
 
-  /* 强调�?�?珊瑚�?*/
-  --color-accent: #FF6B6B;
-  --color-accent-light: #FF9B9B;
-  --color-accent-bg: #FFF0F0;
+  /* 辅色 · 湖水青（互补色，用于辅助 / 信息类） */
+  --color-accent: #00B5C8;
+  --color-accent-light: #4DCFDC;
+  --color-accent-lighter: #A1E3EB;
+  --color-accent-bg: #E5F7F9;
+  --color-accent-gradient: linear-gradient(135deg, #00B5C8 0%, #4DCFDC 100%);
 
-  /* 成功 �?薄荷�?*/
-  --color-success: #4ECDC4;
-  --color-success-light: #7EDDD6;
-  --color-success-bg: #ECFDF8;
+  /* 成功 · 草绿 */
+  --color-success: #5BC97F;
+  --color-success-light: #A0DEB4;
+  --color-success-bg: #ECFAF0;
+  --color-success-gradient: linear-gradient(135deg, #5BC97F 0%, #A0DEB4 100%);
 
-  /* 警告 �?阳光�?*/
-  --color-warning: #FFB647;
-  --color-warning-light: #FFD08A;
-  --color-warning-bg: #FFFBEB;
+  /* 警告 · 橙黄 */
+  --color-warning: #F5A623;
+  --color-warning-light: #F8C46A;
+  --color-warning-bg: #FFF6E5;
+  --color-warning-gradient: linear-gradient(135deg, #F5A623 0%, #F8C46A 100%);
 
-  /* 信息 �?天空�?*/
-  --color-info: #54B5FF;
-  --color-info-light: #8ECFFF;
-  --color-info-bg: #EFF8FF;
+  /* 危险 · 暖珊瑚红 */
+  --color-danger: #E55A6F;
+  --color-danger-light: #F08C9C;
+  --color-danger-bg: #FDEFF1;
 
-  /* 中性色 */
-  --color-text-primary: #2D2B55;
-  --color-text-secondary: #6B6B8D;
-  --color-text-muted: #A0A0BE;
-  --color-bg-app: #F7F5FF;
+  /* 信息 · 复用湖青 */
+  --color-info: #00B5C8;
+  --color-info-light: #4DCFDC;
+  --color-info-bg: #E5F7F9;
+
+  /* 高亮 · 柠黄（用于成就 / 徽章 / 高光） */
+  --color-highlight: #FFD93D;
+  --color-highlight-light: #FFE875;
+  --color-highlight-bg: #FFFBE5;
+
+  /* 中性色 · 暖灰调（配合奶白背景） */
+  --color-text-primary: #2D2A26;
+  --color-text-secondary: #6B6359;
+  --color-text-muted: #A89E91;
+  --color-bg-app: #FFFBF5;
   --color-bg-card: #FFFFFF;
-  --color-bg-sidebar: #FEFCFF;
-  --color-border: #E8E5F0;
-  --color-border-light: #F0EEF5;
+  --color-bg-sidebar: #FFF8EE;
+  --color-border: #F0E5D6;
+  --color-border-light: #F8F0E0;
 
   /* 圆角 */
   --radius-sm: 8px;
@@ -50,12 +64,12 @@
   --radius-2xl: 24px;
   --radius-full: 9999px;
 
-  /* 阴影 */
-  --shadow-sm: 0 2px 8px rgba(124, 92, 252, 0.06);
-  --shadow-md: 0 4px 16px rgba(124, 92, 252, 0.1);
-  --shadow-lg: 0 8px 32px rgba(124, 92, 252, 0.12);
-  --shadow-card: 0 2px 12px rgba(124, 92, 252, 0.08);
-  --shadow-hover: 0 8px 24px rgba(124, 92, 252, 0.16);
+  /* 阴影 · 暖橙色调 */
+  --shadow-sm: 0 2px 8px rgba(255, 140, 66, 0.08);
+  --shadow-md: 0 4px 16px rgba(255, 140, 66, 0.12);
+  --shadow-lg: 0 8px 32px rgba(255, 140, 66, 0.15);
+  --shadow-card: 0 2px 12px rgba(255, 140, 66, 0.1);
+  --shadow-hover: 0 8px 24px rgba(255, 140, 66, 0.18);
 
   /* 字体 */
   --font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -141,12 +155,11 @@ body {
   height: 100vh;
 }
 
-/* --- 侧边�?--- */
+/* --- 侧边栏 --- */
 .app-sidebar {
   width: var(--sidebar-width);
   height: 100vh;
-  background: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-border-light);
+  background: var(--color-bg-app);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -245,15 +258,14 @@ body {
   min-width: 0;
 }
 
-/* --- 顶部�?--- */
+/* --- 顶部栏 --- */
 .app-topbar {
   height: 56px;
   padding: 0 var(--space-lg);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg-app);
   flex-shrink: 0;
 }
 
@@ -298,18 +310,18 @@ body {
 }
 
 .stat-badge.streak {
-  background: linear-gradient(135deg, #FFF0E0, #FFE4CC);
-  color: #E07A2F;
+  background: linear-gradient(135deg, #FDEFF1, #FAD8DD);
+  color: #C7475C;
 }
 
 .stat-badge.xp {
-  background: linear-gradient(135deg, #F0EDFF, #E4DFFF);
+  background: linear-gradient(135deg, #FFF1E6, #FFE2CC);
   color: var(--color-primary);
 }
 
 .stat-badge.stars {
-  background: linear-gradient(135deg, #FFFBEB, #FFF3CC);
-  color: #D4A017;
+  background: linear-gradient(135deg, #FFFBE5, #FFF1B8);
+  color: #C99500;
 }
 
 .stat-badge-icon {
@@ -457,10 +469,10 @@ body {
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(124, 92, 252, 0.2);
+    box-shadow: 0 0 0 0 rgba(255, 140, 66, 0.25);
   }
   50% {
-    box-shadow: 0 0 0 8px rgba(124, 92, 252, 0);
+    box-shadow: 0 0 0 8px rgba(255, 140, 66, 0);
   }
 }
 
@@ -579,15 +591,15 @@ body {
 }
 
 .companion-bg-glow.morning {
-  background: radial-gradient(circle, #FFD08A 0%, transparent 70%);
+  background: radial-gradient(circle, #FFD93D 0%, transparent 70%);
 }
 
 .companion-bg-glow.afternoon {
-  background: radial-gradient(circle, #9B7FFF 0%, transparent 70%);
+  background: radial-gradient(circle, #FFA86A 0%, transparent 70%);
 }
 
 .companion-bg-glow.evening {
-  background: radial-gradient(circle, #54B5FF 0%, transparent 70%);
+  background: radial-gradient(circle, #4DCFDC 0%, transparent 70%);
 }
 
 /* 角色头像容器 */
@@ -595,15 +607,15 @@ body {
   width: 220px;
   height: 220px;
   border-radius: 50%;
-  background: linear-gradient(145deg, var(--color-primary-bg) 0%, #F0EDFF 50%, #E8F4FF 100%);
+  background: linear-gradient(145deg, #FFF1E6 0%, #FFFBE5 50%, #E5F7F9 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
   z-index: 1;
   box-shadow:
-    0 8px 32px rgba(124, 92, 252, 0.12),
-    inset 0 -4px 12px rgba(124, 92, 252, 0.06);
+    0 8px 32px rgba(255, 140, 66, 0.15),
+    inset 0 -4px 12px rgba(0, 181, 200, 0.08);
 }
 
 .companion-avatar-wrapper::before {
@@ -621,7 +633,7 @@ body {
   width: 160px;
   height: 160px;
   object-fit: contain;
-  filter: drop-shadow(0 4px 12px rgba(124, 92, 252, 0.2));
+  filter: drop-shadow(0 4px 12px rgba(255, 140, 66, 0.25));
 }
 
 /* 心情标签 */
@@ -686,7 +698,7 @@ body {
   border-top: 10px solid transparent;
   border-bottom: 10px solid transparent;
   border-right: 12px solid var(--color-bg-card);
-  filter: drop-shadow(-2px 0 2px rgba(124, 92, 252, 0.06));
+  filter: drop-shadow(-2px 0 2px rgba(255, 140, 66, 0.08));
 }
 
 .greeting-text {

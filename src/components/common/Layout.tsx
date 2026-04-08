@@ -41,8 +41,6 @@ const Layout: React.FC = () => {
     <div className="app-layout">
       {/* 侧边栏 */}
       <aside className="app-sidebar">
-        <div className="sidebar-logo">🧮</div>
-
         <nav className="sidebar-nav">
           {navItems.map((item) => (
             <NavLink

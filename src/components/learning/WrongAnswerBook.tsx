@@ -35,10 +35,10 @@ const ERROR_TYPE_LABEL: Record<string, string> = {
   strategic: '策略错误',
 };
 const ERROR_TYPE_COLOR: Record<string, string> = {
-  conceptual: '#EF5350',
-  procedural: '#FFA726',
-  careless: '#42A5F5',
-  strategic: '#AB47BC',
+  conceptual: '#E55A6F',
+  procedural: '#F5A623',
+  careless: '#00B5C8',
+  strategic: '#9B7BD0',
 };
 
 type ErrorFilter = 'all' | 'conceptual' | 'procedural' | 'careless' | 'strategic';
@@ -170,7 +170,7 @@ const WrongAnswerBook: React.FC<Props> = ({ studentId }) => {
           <AnimatePresence>
             {filteredItems.map((item, idx) => {
               const isExpanded = expandedId === item.record_id;
-              const errColor = item.error_type ? ERROR_TYPE_COLOR[item.error_type] : '#FF6B6B';
+              const errColor = item.error_type ? ERROR_TYPE_COLOR[item.error_type] : '#E55A6F';
               return (
                 <motion.div
                   key={item.record_id}

@@ -35,16 +35,16 @@ interface MapUnit {
 }
 
 const UNIT_CFGS = [
-  { theme: '#7C5CFC', emoji: '🏔️', landscape: '分数山脉' },
-  { theme: '#54B5FF', emoji: '🧭', landscape: '方向海湾' },
-  { theme: '#FF6B6B', emoji: '🌋', landscape: '除法火山' },
-  { theme: '#4ECDC4', emoji: '⚖️', landscape: '比例绿洲' },
-  { theme: '#FFB647', emoji: '🔮', landscape: '圆形秘境' },
+  { theme: '#FF8C42', emoji: '🏔️', landscape: '分数山脉' },
+  { theme: '#00B5C8', emoji: '🧭', landscape: '方向海湾' },
+  { theme: '#E55A6F', emoji: '🌋', landscape: '除法火山' },
+  { theme: '#5BC97F', emoji: '⚖️', landscape: '比例绿洲' },
+  { theme: '#F5A623', emoji: '🔮', landscape: '圆形秘境' },
   { theme: '#E07AFF', emoji: '💎', landscape: '百分水晶洞' },
-  { theme: '#FF8A65', emoji: '🗺️', landscape: '统计沙漠' },
+  { theme: '#FF8C42', emoji: '🗺️', landscape: '统计沙漠' },
   { theme: '#66BB6A', emoji: '🌿', landscape: '数形森林' },
   { theme: '#78909C', emoji: '❄️', landscape: '负数冰原' },
-  { theme: '#AB47BC', emoji: '🏦', landscape: '百分城堡' },
+  { theme: '#9B7BD0', emoji: '🏦', landscape: '百分城堡' },
   { theme: '#26A69A', emoji: '🏛️', landscape: '立体神殿' },
   { theme: '#5C6BC0', emoji: '📐', landscape: '比例迷宫' },
   { theme: '#EC407A', emoji: '🐦', landscape: '鸽巢密林' },
@@ -96,7 +96,7 @@ const Stars: React.FC<{ count: number; size?: number }> = ({ count, size = 13 })
   <div className="map-stars">
     {[1, 2, 3].map(i => (
       <span key={i} className={`map-star ${i <= count ? 'filled' : ''}`}>
-        {i <= count ? <StarFilled style={{ fontSize: size, color: '#FFB647' }} /> : <StarOutlined style={{ fontSize: size, color: '#D9D9D9' }} />}
+        {i <= count ? <StarFilled style={{ fontSize: size, color: '#F5A623' }} /> : <StarOutlined style={{ fontSize: size, color: '#D9D9D9' }} />}
       </span>
     ))}
   </div>
@@ -323,7 +323,7 @@ const LearnPage: React.FC = () => {
             ))}
           </div>
           <div className="total-stars-badge">
-            <TrophyFilled style={{ fontSize: 16, color: '#FFB647' }} />
+            <TrophyFilled style={{ fontSize: 16, color: '#F5A623' }} />
             <span className="total-stars-count">{totalStars}</span>
             <span className="total-stars-max">/ {maxStars}</span>
           </div>

@@ -140,9 +140,9 @@ const ProfilePage: React.FC = () => {
           color: '#6B6B8D',
           fontSize: 11,
         },
-        splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.15)' } },
-        splitArea: { areaStyle: { color: ['rgba(124, 92, 252, 0.02)', 'rgba(124, 92, 252, 0.06)'] } },
-        axisLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.2)' } },
+        splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.15)' } },
+        splitArea: { areaStyle: { color: ['rgba(255, 140, 66, 0.02)', 'rgba(255, 140, 66, 0.06)'] } },
+        axisLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.2)' } },
       },
       series: [
         {
@@ -158,13 +158,13 @@ const ProfilePage: React.FC = () => {
                   type: 'radial' as const,
                   x: 0.5, y: 0.5, r: 0.7,
                   colorStops: [
-                    { offset: 0, color: 'rgba(124, 92, 252, 0.45)' },
+                    { offset: 0, color: 'rgba(255, 140, 66, 0.45)' },
                     { offset: 1, color: 'rgba(84, 181, 255, 0.1)' },
                   ],
                 },
               },
-              lineStyle: { color: '#7C5CFC', width: 2 },
-              itemStyle: { color: '#7C5CFC', borderColor: '#fff', borderWidth: 2 },
+              lineStyle: { color: '#FF8C42', width: 2 },
+              itemStyle: { color: '#FF8C42', borderColor: '#fff', borderWidth: 2 },
             },
           ],
         },
@@ -181,13 +181,13 @@ const ProfilePage: React.FC = () => {
       xAxis: {
         type: 'category' as const,
         data: sorted.map((d) => d.name),
-        axisLabel: { rotate: 30, fontSize: 10, color: '#7b77a3' },
-        axisLine: { lineStyle: { color: '#e6e1ff' } },
+        axisLabel: { rotate: 30, fontSize: 10, color: '#6B6359' },
+        axisLine: { lineStyle: { color: '#F0E5D6' } },
       },
       yAxis: {
         type: 'value' as const,
-        axisLabel: { formatter: '{value}%', color: '#7b77a3' },
-        splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.08)' } },
+        axisLabel: { formatter: '{value}%', color: '#6B6359' },
+        splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.08)' } },
       },
       series: [
         {
@@ -196,15 +196,15 @@ const ProfilePage: React.FC = () => {
           smooth: true,
           symbol: 'circle',
           symbolSize: 8,
-          lineStyle: { color: '#7C5CFC', width: 3 },
-          itemStyle: { color: '#54B5FF', borderColor: '#fff', borderWidth: 2 },
+          lineStyle: { color: '#FF8C42', width: 3 },
+          itemStyle: { color: '#00B5C8', borderColor: '#fff', borderWidth: 2 },
           areaStyle: {
             color: {
               type: 'linear' as const,
               x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: 'rgba(124, 92, 252, 0.35)' },
-                { offset: 1, color: 'rgba(124, 92, 252, 0.02)' },
+                { offset: 0, color: 'rgba(255, 140, 66, 0.35)' },
+                { offset: 1, color: 'rgba(255, 140, 66, 0.02)' },
               ],
             },
           },
@@ -222,13 +222,13 @@ const ProfilePage: React.FC = () => {
       xAxis: {
         type: 'category' as const,
         data: sorted.map((d) => d.name),
-        axisLabel: { rotate: 30, fontSize: 10, color: '#7b77a3' },
-        axisLine: { lineStyle: { color: '#e6e1ff' } },
+        axisLabel: { rotate: 30, fontSize: 10, color: '#6B6359' },
+        axisLine: { lineStyle: { color: '#F0E5D6' } },
       },
       yAxis: {
         type: 'value' as const,
-        axisLabel: { color: '#7b77a3' },
-        splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.08)' } },
+        axisLabel: { color: '#6B6359' },
+        splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.08)' } },
       },
       series: [
         {
@@ -240,8 +240,8 @@ const ProfilePage: React.FC = () => {
               type: 'linear' as const,
               x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: '#7C5CFC' },
-                { offset: 1, color: '#54B5FF' },
+                { offset: 0, color: '#FF8C42' },
+                { offset: 1, color: '#00B5C8' },
               ],
             },
             borderRadius: [6, 6, 0, 0],
@@ -263,13 +263,13 @@ const ProfilePage: React.FC = () => {
     xAxis: {
       type: 'category' as const,
       data: dailyStats.map((d) => d.date),
-      axisLabel: { fontSize: 11, color: '#7b77a3' },
-      axisLine: { lineStyle: { color: '#e6e1ff' } },
+      axisLabel: { fontSize: 11, color: '#6B6359' },
+      axisLine: { lineStyle: { color: '#F0E5D6' } },
     },
     yAxis: {
       type: 'value' as const,
-      axisLabel: { formatter: '{value}\u00a0分', color: '#7b77a3' },
-      splitLine: { lineStyle: { color: 'rgba(124, 92, 252, 0.08)' } },
+      axisLabel: { formatter: '{value}\u00a0分', color: '#6B6359' },
+      splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.08)' } },
     },
     series: [{
       type: 'bar' as const,
@@ -279,8 +279,8 @@ const ProfilePage: React.FC = () => {
           type: 'linear' as const,
           x: 0, y: 0, x2: 0, y2: 1,
           colorStops: [
-            { offset: 0, color: '#7C5CFC' },
-            { offset: 1, color: '#9B7FFF' },
+            { offset: 0, color: '#FF8C42' },
+            { offset: 1, color: '#FFA86A' },
           ],
         },
         borderRadius: [8, 8, 0, 0],
@@ -399,9 +399,9 @@ const ProfilePage: React.FC = () => {
                           className="weak-bar"
                           style={{
                             width: `${item.mastery_score * 100}%`,
-                            background: item.mastery_score < 0.4 ? '#FF6B6B'
-                              : item.mastery_score < 0.7 ? '#FFB647'
-                              : '#4ECDC4',
+                            background: item.mastery_score < 0.4 ? '#E55A6F'
+                              : item.mastery_score < 0.7 ? '#F5A623'
+                              : '#5BC97F',
                           }}
                         />
                       </div>

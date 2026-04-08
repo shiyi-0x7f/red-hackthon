@@ -76,7 +76,7 @@
   gap: 6px;
   padding: 8px 16px;
   border-radius: var(--radius-full);
-  background: linear-gradient(135deg, #FFFBEB, #FFF3CC);
+  background: linear-gradient(135deg, #FFFBE5, #FFEAB0);
   border: 1px solid #FFE4A0;
   font-size: var(--font-size-sm);
 }
@@ -312,22 +312,22 @@
 .node-available {
   background: linear-gradient(145deg, #fff, #F5F2FF);
   border: 3px dashed;
-  box-shadow: 0 3px 12px rgba(124, 92, 252, 0.1);
+  box-shadow: 0 3px 12px rgba(255, 140, 66, 0.1);
   animation: avail-pulse 2s ease-in-out infinite;
 }
 
 @keyframes avail-pulse {
-  0%, 100% { box-shadow: 0 3px 12px rgba(124, 92, 252, 0.1); }
-  50% { box-shadow: 0 3px 20px rgba(124, 92, 252, 0.25); }
+  0%, 100% { box-shadow: 0 3px 12px rgba(255, 140, 66, 0.1); }
+  50% { box-shadow: 0 3px 20px rgba(255, 140, 66, 0.25); }
 }
 
 /* 当前 — 弹跳 */
 .node-current {
   width: 62px;
   height: 62px;
-  background: linear-gradient(145deg, #fff, #F0EDFF);
+  background: linear-gradient(145deg, #fff, #FFF1E6);
   border: 3px solid;
-  box-shadow: 0 6px 24px rgba(124, 92, 252, 0.2);
+  box-shadow: 0 6px 24px rgba(255, 140, 66, 0.2);
   animation: node-bounce 2s ease-in-out infinite;
 }
 

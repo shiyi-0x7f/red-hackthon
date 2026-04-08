@@ -76,9 +76,9 @@ const ReviewPage: React.FC = () => {
   };
 
   const urgencyColor = (risk: number) => {
-    if (risk >= 0.7) return '#FF6B6B';
-    if (risk >= 0.5) return '#FFB647';
-    return '#4ECDC4';
+    if (risk >= 0.7) return '#E55A6F';
+    if (risk >= 0.5) return '#F5A623';
+    return '#5BC97F';
   };
 
   const urgencyLabel = (risk: number) => {

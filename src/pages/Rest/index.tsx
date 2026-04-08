@@ -98,21 +98,21 @@ const RestPage: React.FC = () => {
             <div className="rest-options-grid">
               {/* 倒计时休息 */}
               <div className="rest-option-card" onClick={() => setRestMode('timer')}>
-                <div className="rest-option-icon" style={{ background: 'linear-gradient(135deg, #7C5CFC, #9B7FFF)' }}>⏰</div>
+                <div className="rest-option-icon" style={{ background: 'linear-gradient(135deg, #FF8C42, #FFA86A)' }}>⏰</div>
                 <h3>定时休息</h3>
                 <p>设置休息倒计时，到时间提醒你</p>
               </div>
 
               {/* 数学小知识 */}
               <div className="rest-option-card" onClick={() => { setCurrentFact(Math.floor(Math.random() * mathFacts.length)); setRestMode('fact'); }}>
-                <div className="rest-option-icon" style={{ background: 'linear-gradient(135deg, #4ECDC4, #7EDDD6)' }}>💡</div>
+                <div className="rest-option-icon" style={{ background: 'linear-gradient(135deg, #5BC97F, #A0DEB4)' }}>💡</div>
                 <h3>趣味数学</h3>
                 <p>了解有趣的数学小知识</p>
               </div>
 
               {/* 数字记忆 */}
               <div className="rest-option-card" onClick={() => { setGameLevel(4); setGameScore(0); startGame(); setRestMode('game'); }}>
-                <div className="rest-option-icon" style={{ background: 'linear-gradient(135deg, #FFB647, #FFD08A)' }}>🧠</div>
+                <div className="rest-option-icon" style={{ background: 'linear-gradient(135deg, #F5A623, #F8C46A)' }}>🧠</div>
                 <h3>数字记忆</h3>
                 <p>锻炼记忆力的小游戏</p>
               </div>
@@ -137,9 +137,9 @@ const RestPage: React.FC = () => {
             ) : (
               <div className="timer-display">
                 <svg className="timer-ring" viewBox="0 0 200 200">
-                  <circle cx="100" cy="100" r="90" fill="none" stroke="rgba(124,92,252,0.1)" strokeWidth="8" />
+                  <circle cx="100" cy="100" r="90" fill="none" stroke="rgba(255, 140, 66,0.1)" strokeWidth="8" />
                   <circle
-                    cx="100" cy="100" r="90" fill="none" stroke="#7C5CFC" strokeWidth="8"
+                    cx="100" cy="100" r="90" fill="none" stroke="#FF8C42" strokeWidth="8"
                     strokeDasharray={565.48}
                     strokeDashoffset={565.48 * timerProgress}
                     strokeLinecap="round"

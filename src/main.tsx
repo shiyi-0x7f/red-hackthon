@@ -8,11 +8,11 @@ import './styles/pages.css';
 
 const antTheme = {
   token: {
-    colorPrimary: '#7C5CFC',
-    colorSuccess: '#4ECDC4',
-    colorWarning: '#FFB647',
-    colorError: '#FF6B6B',
-    colorInfo: '#54B5FF',
+    colorPrimary: '#FF8C42',
+    colorSuccess: '#5BC97F',
+    colorWarning: '#F5A623',
+    colorError: '#E55A6F',
+    colorInfo: '#00B5C8',
     borderRadius: 12,
     fontFamily: "'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     fontSize: 14,

@@ -9,9 +9,9 @@ interface Props {
 /** 评级标签 */
 const rate = (v: number, reverse = false): { label: string; color: string } => {
   const r = reverse ? 1 - v : v;
-  if (r >= 0.7) return { label: '良好', color: '#4ECDC4' };
-  if (r >= 0.4) return { label: '一般', color: '#FFB647' };
-  return { label: '需关注', color: '#FF6B6B' };
+  if (r >= 0.7) return { label: '良好', color: '#5BC97F' };
+  if (r >= 0.4) return { label: '一般', color: '#F5A623' };
+  return { label: '需关注', color: '#E55A6F' };
 };
 
 const Gauge: React.FC<{
@@ -77,7 +77,7 @@ const ParentRealtimePanel: React.FC<Props> = ({ studentId }) => {
     return (
       <div className="card parent-realtime-panel">
         <h2 className="card-title">🧠 学习行为与状态（详细）</h2>
-        <div style={{ padding: 20, textAlign: 'center', color: '#9892c0' }}>
+        <div style={{ padding: 20, textAlign: 'center', color: '#A89E91' }}>
           {loading ? '正在加载学生数据...' : '暂无数据'}
         </div>
       </div>

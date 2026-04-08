@@ -16,7 +16,7 @@ interface Props {
   spec: FractionBarSpec;
 }
 
-const DEFAULT_COLORS = ['#7C5CFC', '#54B5FF', '#FF8A65', '#66BB6A', '#FFB74D'];
+const DEFAULT_COLORS = ['#FF8C42', '#00B5C8', '#FF8C42', '#66BB6A', '#F5A623'];
 
 /** 分数 / 百分比可视化条 — 用于无需 JSXGraph 的简单题 */
 const FractionBar: React.FC<Props> = ({ spec }) => {
