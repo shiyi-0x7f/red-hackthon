@@ -404,23 +404,49 @@ export const pacingService = {
 // === 对话 ===
 const CHAT_FALLBACK_REPLIES = [
   '嘿嘿，这个问题很有趣！让我想想...',
-  '你好厉害，已经开始主动学习了！一起加油！💪',
+  '你好厉害，已经开始主动学习了！一起加油！',
   '哈哈，我们来做几道有趣的数学题吧！',
-  '谢谢你来找我聊天！我们来聊聊数学的奥秘 😊',
-  '嗯嗯，我听到你说的啦！要不我们一起做几道数学题吧？📝',
+  '谢谢你来找我聊天！我们来聊聊数学的奥秘',
+  '嗯嗯，我听到你说的啦！要不我们一起做几道数学题吧？',
 ];
 let _chatReplyIdx = 0;
+let _chatSessionStart = 0;
 
 export const chatService = {
-  sendMessage: async (studentId: string, message: string) => {
+  sendMessage: async (_studentId: string, _message: string) => {
     if (isTauri()) {
-      return invoke('send_chat_message', { studentId, message });
+      return invoke('send_chat_message', { studentId: _studentId, message: _message });
     }
-    // 浏览器 Mock：返回预设回复
-    await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
-    const reply = CHAT_FALLBACK_REPLIES[_chatReplyIdx % CHAT_FALLBACK_REPLIES.length];
+    // 浏览器 Mock：返回预设回复 + 模拟节奏控制元数据
+    await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
+    if (_chatSessionStart === 0) _chatSessionStart = Date.now();
+    const sessionSecs = Math.floor((Date.now() - _chatSessionStart) / 1000);
     _chatReplyIdx++;
-    return { reply, chat_remaining: 20 - _chatReplyIdx, is_limited: false };
+    const remaining = Math.max(0, 20 - _chatReplyIdx);
+    // 5 分钟硬限模拟
+    if (sessionSecs >= 300) {
+      _chatSessionStart = 0; // 进入冷却
+      return {
+        reply: '我们已经聊了差不多 5 分钟啦～休息一下，等会再聊吧。',
+        structured: null,
+        chat_remaining: remaining,
+        is_limited: true,
+        limit_reason: 'session_max',
+        session_secs: sessionSecs,
+        session_max_secs: 300,
+        needs_escalation: false,
+      };
+    }
+    const reply = CHAT_FALLBACK_REPLIES[_chatReplyIdx % CHAT_FALLBACK_REPLIES.length];
+    return {
+      reply,
+      structured: null,
+      chat_remaining: remaining,
+      is_limited: false,
+      session_secs: sessionSecs,
+      session_max_secs: 300,
+      needs_escalation: false,
+    };
   },
 
   getHistory: (studentId: string, limit?: number) =>

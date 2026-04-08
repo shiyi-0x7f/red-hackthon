@@ -10,6 +10,7 @@ import {
   SmileOutlined,
   AudioOutlined,
 } from '@ant-design/icons';
+import '../../styles/learning-extras.css';
 
 // === 静态预设回复 ===
 const GREETINGS: Record<string, { text: string; mood: string; moodEmoji: string }> = {
@@ -163,6 +164,13 @@ const HomePage: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const replyIndex = useRef(0);
 
+  // 节奏控制状态（来自后端 chatService）
+  const [chatRemaining, setChatRemaining] = useState<number | null>(null);
+  const [sessionSecs, setSessionSecs] = useState(0);
+  const [sessionMaxSecs] = useState(300); // 5 分钟硬限
+  const [limitReason, setLimitReason] = useState<string | null>(null);
+  const [cooldownSecs, setCooldownSecs] = useState(0);
+
   // 语音相关状态
   const [isListening, setIsListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
@@ -201,7 +209,26 @@ const HomePage: React.FC = () => {
         structured?: StructuredReply;
         chat_remaining?: number;
         is_limited?: boolean;
+        limit_reason?: string;
+        session_secs?: number;
+        session_max_secs?: number;
+        cooldown_remaining_secs?: number;
+        needs_escalation?: boolean;
       };
+
+      // 节奏控制元数据
+      if (typeof result.chat_remaining === 'number') setChatRemaining(result.chat_remaining);
+      if (typeof result.session_secs === 'number') setSessionSecs(result.session_secs);
+      if (result.is_limited) {
+        setLimitReason(result.limit_reason ?? 'limited');
+        if (result.cooldown_remaining_secs) setCooldownSecs(result.cooldown_remaining_secs);
+      } else {
+        setLimitReason(null);
+        setCooldownSecs(0);
+      }
+      if (result.needs_escalation) {
+        console.warn('[Chat] 触发敏感内容升级提示');
+      }
 
       // 尝试解析 structured 或从 reply 中解析 JSON
       let structured: StructuredReply | undefined = result.structured as StructuredReply;
@@ -486,15 +513,46 @@ const HomePage: React.FC = () => {
                 ))}
               </div>
 
+              {/* 节奏控制状态条 */}
+              {(chatRemaining !== null || sessionSecs > 0 || limitReason) && (
+                <div className={`chat-pacing-bar ${limitReason ? 'limited' : ''}`}>
+                  {limitReason === 'cooldown' && (
+                    <span>💤 我们刚才聊得比较多，{Math.ceil(cooldownSecs / 60)} 分钟后再聊吧</span>
+                  )}
+                  {limitReason === 'session_max' && (
+                    <span>⏱ 已经聊了 5 分钟啦，先休息一下 ☕</span>
+                  )}
+                  {limitReason === 'daily_quota' && (
+                    <span>📚 今天聊天次数用完啦，明天再来</span>
+                  )}
+                  {!limitReason && (
+                    <>
+                      {chatRemaining !== null && (
+                        <span className="chat-pacing-quota">今日剩余 {chatRemaining} 次</span>
+                      )}
+                      {sessionSecs > 0 && (
+                        <span className="chat-pacing-session">
+                          本次对话 {Math.floor(sessionSecs / 60)}:{String(sessionSecs % 60).padStart(2, '0')} / {sessionMaxSecs / 60}:00
+                          <span className="chat-pacing-track">
+                            <span className="chat-pacing-fill" style={{ width: `${Math.min(100, (sessionSecs / sessionMaxSecs) * 100)}%` }} />
+                          </span>
+                        </span>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* 输入框 + 语音 + 发送 */}
               <div className="chat-input-area">
                 <input
                   type="text"
                   className="chat-input"
-                  placeholder={isListening ? '🎤 正在听你说...' : '说点什么吧...'}
+                  placeholder={isListening ? '🎤 正在听你说...' : limitReason ? '稍后再来吧...' : '说点什么吧...'}
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
+                  disabled={!!limitReason}
                 />
 
                 {/* 语音按钮 */}
