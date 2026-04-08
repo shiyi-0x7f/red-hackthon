@@ -8,36 +8,18 @@ interface Props {
   refreshKey: number;
 }
 
-/** 数值条 */
-const Bar: React.FC<{
-  label: string;
-  value: number; // 0~1
-  color: string;
-  reverse?: boolean; // true: 越低越好 → 红色高
-  format?: (v: number) => string;
-}> = ({ label, value, color, reverse, format }) => {
-  const pct = Math.max(0, Math.min(1, value)) * 100;
-  const display = format ? format(value) : `${pct.toFixed(0)}%`;
-  const danger = reverse ? value > 0.6 : value < 0.4;
-  return (
-    <div className="dash-bar">
-      <div className="dash-bar-row">
-        <span className="dash-bar-label">{label}</span>
-        <span className={`dash-bar-value ${danger ? 'danger' : ''}`}>{display}</span>
-      </div>
-      <div className="dash-bar-track">
-        <motion.div
-          className="dash-bar-fill"
-          style={{ background: color }}
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.6, ease: 'easeOut' }}
-        />
-      </div>
-    </div>
-  );
-};
-
+/**
+ * 学生端学习仪表盘
+ *
+ * ⚠️ 设计原则（严格遵守 dev_docs/00_项目总览与原则.md）：
+ * 学生端只展示「中性、鼓励性」的信息，绝不展示可能让学生贴标签的指标。
+ * 因此：
+ * - ❌ 不显示行为层（hint_dependency / impulsivity / accuracy_rate 整体值）
+ * - ❌ 不显示状态层（fatigue / attention / frustration / cognitive_load）
+ * - ✅ 只显示：知识薄弱点、本次会话时长 / 进度、平均用时
+ *
+ * 完整 6 层画像在【家长端】展示（Parent 页 ParentDashboard）
+ */
 const StudentDashboard: React.FC<Props> = ({ studentId, refreshKey }) => {
   const [profile, setProfile] = useState<RealtimeProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -62,37 +44,28 @@ const StudentDashboard: React.FC<Props> = ({ studentId, refreshKey }) => {
   if (!profile) {
     return (
       <aside className="student-dashboard">
-        <div className="dash-loading">{loading ? '加载画像...' : '画像数据为空'}</div>
+        <div className="dash-loading">{loading ? '加载中...' : '准备中'}</div>
       </aside>
     );
   }
 
   const k = profile.knowledge_layer;
   const b = profile.behavior_layer;
-  const s = profile.state_layer;
   const sess = profile.session_layer;
 
   return (
     <aside className="student-dashboard">
       <div className="dash-header">
-        <span className="dash-header-title">学生画像</span>
-        <span className="dash-header-tag">实时</span>
+        <span className="dash-header-title">📓 学习小本本</span>
       </div>
 
-      {/* 知识层 */}
-      <div className="dash-section">
-        <div className="dash-section-title">📚 知识掌握</div>
-        <Bar
-          label="平均掌握度"
-          value={k.avg_mastery}
-          color="linear-gradient(90deg, #7C5CFC, #54B5FF)"
-          format={(v) => `${(v * 100).toFixed(0)}%`}
-        />
-        {k.weak_topics.length > 0 && (
-          <div className="dash-weak-list">
-            <div className="dash-weak-label">⚠️ 薄弱点 (Top {k.weak_topics.length})</div>
+      {/* 知识薄弱点（只突出"我们一起加油的方向"，不显示总体掌握度数字以免打击）*/}
+      {k.weak_topics.length > 0 && (
+        <div className="dash-section">
+          <div className="dash-section-title">🌱 我们一起加油的知识点</div>
+          <div className="dash-weak-list dash-weak-list-friendly">
             <AnimatePresence>
-              {k.weak_topics.map((t) => (
+              {k.weak_topics.slice(0, 3).map((t) => (
                 <motion.div
                   key={t.name}
                   className="dash-weak-item"
@@ -101,59 +74,42 @@ const StudentDashboard: React.FC<Props> = ({ studentId, refreshKey }) => {
                   exit={{ opacity: 0 }}
                 >
                   <span className="dash-weak-name">{t.name}</span>
-                  <span className="dash-weak-pct">{(t.mastery * 100).toFixed(0)}%</span>
                 </motion.div>
               ))}
             </AnimatePresence>
           </div>
+        </div>
+      )}
+
+      {/* 本次会话进度（中性数据，不评价）*/}
+      <div className="dash-section dash-section-session">
+        <div className="dash-section-title">⏱ 本次学习</div>
+        <div className="dash-mini-row">
+          <div className="dash-mini">
+            <span className="dash-mini-label">时长</span>
+            <span className="dash-mini-value">
+              {Math.floor(sess.duration_secs / 60)}:{String(sess.duration_secs % 60).padStart(2, '0')}
+            </span>
+          </div>
+          <div className="dash-mini">
+            <span className="dash-mini-label">已做</span>
+            <span className="dash-mini-value">{sess.total_questions} 道</span>
+          </div>
+        </div>
+        {b.sample_count > 0 && (
+          <div className="dash-mini-row" style={{ marginTop: 8 }}>
+            <div className="dash-mini">
+              <span className="dash-mini-label">平均用时</span>
+              <span className="dash-mini-value">{b.avg_response_time.toFixed(0)}s</span>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* 行为层 */}
-      <div className="dash-section">
-        <div className="dash-section-title">🎯 行为特征</div>
-        <Bar label="正确率" value={b.accuracy_rate} color="#54B5FF" />
-        <Bar label="提示依赖" value={b.hint_dependency} color="#FFB74D" reverse />
-        <Bar label="冲动度" value={b.impulsivity} color="#FF8A65" reverse />
-        <div className="dash-mini-row">
-          <div className="dash-mini">
-            <span className="dash-mini-label">平均用时</span>
-            <span className="dash-mini-value">{b.avg_response_time.toFixed(0)}s</span>
-          </div>
-          <div className="dash-mini">
-            <span className="dash-mini-label">样本</span>
-            <span className="dash-mini-value">{b.sample_count}</span>
-          </div>
-        </div>
+      {/* 鼓励语 — 静态正向，不基于"挫败感/疲劳"等敏感指标 */}
+      <div className="dash-encourage">
+        慢慢来，每一道题都是进步 ✨
       </div>
-
-      {/* 状态层 */}
-      <div className="dash-section">
-        <div className="dash-section-title">💡 当前状态</div>
-        <Bar label="疲劳度" value={s.fatigue} color="#FF8A65" reverse />
-        <Bar label="注意力" value={s.attention} color="#66BB6A" />
-        <Bar label="挫败感" value={s.frustration} color="#EF5350" reverse />
-        <Bar label="认知负荷" value={s.cognitive_load} color="#AB47BC" reverse />
-      </div>
-
-      {/* 会话信息 */}
-      {sess.active && (
-        <div className="dash-section dash-section-session">
-          <div className="dash-section-title">⏱ 本次会话</div>
-          <div className="dash-mini-row">
-            <div className="dash-mini">
-              <span className="dash-mini-label">时长</span>
-              <span className="dash-mini-value">
-                {Math.floor(sess.duration_secs / 60)}:{String(sess.duration_secs % 60).padStart(2, '0')}
-              </span>
-            </div>
-            <div className="dash-mini">
-              <span className="dash-mini-label">已答</span>
-              <span className="dash-mini-value">{sess.correct_count}/{sess.total_questions}</span>
-            </div>
-          </div>
-        </div>
-      )}
     </aside>
   );
 };

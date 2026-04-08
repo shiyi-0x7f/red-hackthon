@@ -551,6 +551,162 @@
   color: #4a3e85;
 }
 
+/* 学生端友好版：薄弱点不显示百分比，只显示名字 */
+.dash-weak-list-friendly {
+  background: #e8f5e9;
+  border: 1px dashed #a5d6a7;
+}
+.dash-weak-list-friendly .dash-weak-label {
+  color: #2e7d32;
+}
+.dash-weak-list-friendly .dash-weak-item {
+  justify-content: flex-start;
+  padding: 6px 0;
+  color: #2e7d32;
+  font-weight: 600;
+}
+.dash-weak-list-friendly .dash-weak-item::before {
+  content: '🌟 ';
+  margin-right: 6px;
+}
+
+/* 静态鼓励语 */
+.dash-encourage {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, rgba(124, 92, 252, 0.08), rgba(84, 181, 255, 0.08));
+  border-radius: 10px;
+  text-align: center;
+  font-size: 12px;
+  color: #4a3e85;
+  font-style: italic;
+}
+
+/* =========================================================
+   家长端 — 6 层实时画像面板
+   ========================================================= */
+.parent-realtime-panel {
+  margin-top: 24px;
+}
+
+.parent-panel-disclaimer {
+  background: #fff7e0;
+  border-left: 3px solid #FFB647;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #8c5a00;
+  margin: 0 0 20px 0;
+  line-height: 1.6;
+}
+
+.parent-panel-section {
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px dashed #f0eefb;
+}
+.parent-panel-section:last-child {
+  border-bottom: none;
+}
+
+.parent-panel-section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #4a3e85;
+  margin-bottom: 14px;
+}
+
+.parent-gauge {
+  margin-bottom: 14px;
+}
+.parent-gauge-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.parent-gauge-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2c2550;
+}
+.parent-gauge-rating {
+  display: inline-block;
+  padding: 2px 10px;
+  color: #fff;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.parent-gauge-track {
+  width: 100%;
+  height: 8px;
+  background: #f0eefb;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.parent-gauge-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+.parent-gauge-desc {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #9892c0;
+}
+
+.parent-panel-mini-stats {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+.parent-panel-mini {
+  flex: 1;
+  background: #f7f5ff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  text-align: center;
+}
+.parent-panel-mini span {
+  display: block;
+  font-size: 11px;
+  color: #9892c0;
+  margin-bottom: 4px;
+}
+.parent-panel-mini strong {
+  display: block;
+  font-size: 16px;
+  color: #4a3e85;
+  font-weight: 700;
+}
+
+.parent-weak-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.parent-weak-item {
+  background: linear-gradient(135deg, #fff4e6, #fff7e0);
+  border: 1px solid #ffd58f;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.parent-weak-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #6c5400;
+  margin-bottom: 4px;
+}
+.parent-weak-mastery {
+  font-size: 13px;
+  color: #8c5a00;
+  margin-bottom: 4px;
+}
+.parent-weak-meta {
+  font-size: 11px;
+  color: #b08440;
+}
+
 /* =========================================================
    AI 出题按钮 + AI 题目标签
    ========================================================= */

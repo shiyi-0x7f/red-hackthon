@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import ParentRealtimePanel from '../../components/learning/ParentRealtimePanel';
+import '../../styles/learning-extras.css';
 
 interface DailyData {
   date: string;
@@ -186,6 +188,9 @@ const ParentPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 6 层实时画像（含敏感行为/状态指标，仅家长可见）*/}
+      <ParentRealtimePanel studentId="default-student" />
 
       {/* 退出 */}
       <div className="parent-footer">
