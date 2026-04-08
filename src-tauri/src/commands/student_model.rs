@@ -84,6 +84,104 @@ pub async fn get_student_profile(
     }))
 }
 
+/// 获取学生整体学习概况（用于 Profile 页统计卡 + 时间趋势图）
+///
+/// 返回：
+/// - total_questions / correct_count / accuracy
+/// - total_duration_minutes（总学习时长）
+/// - learning_days（有学习的天数）
+/// - daily_stats: 最近 7 天每日 {date, duration_minutes, question_count, correct_count}
+/// - mastery_data: 各知识点掌握度（用于雷达图 / 弱项排行）
+#[tauri::command]
+pub async fn get_profile_overview(
+    student_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+    // 总答题数 + 正确数
+    let total_questions: i64 = db.query_row(
+        "SELECT COUNT(*) FROM answer_records WHERE student_id = ?1",
+        rusqlite::params![student_id],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    let correct_count: i64 = db.query_row(
+        "SELECT COUNT(*) FROM answer_records WHERE student_id = ?1 AND is_correct = 1",
+        rusqlite::params![student_id],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    // 总学习时长（从 daily_stats 累加）+ 学习天数
+    let (total_duration_secs, learning_days): (i64, i64) = db.query_row(
+        "SELECT COALESCE(SUM(total_duration_secs), 0), COUNT(DISTINCT stat_date)
+         FROM daily_stats WHERE student_id = ?1",
+        rusqlite::params![student_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).unwrap_or((0, 0));
+
+    // 最近 7 天每日数据
+    let mut daily_stats: Vec<serde_json::Value> = Vec::new();
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT stat_date, total_duration_secs, question_count, correct_count
+         FROM daily_stats WHERE student_id = ?1
+         ORDER BY stat_date DESC LIMIT 7"
+    ) {
+        if let Ok(rows) = stmt.query_map(rusqlite::params![student_id], |row| {
+            let date: String = row.get(0)?;
+            let dur: i64 = row.get(1)?;
+            let q: i64 = row.get(2)?;
+            let c: i64 = row.get(3)?;
+            Ok(serde_json::json!({
+                "date": date,
+                "duration_minutes": dur / 60,
+                "question_count": q,
+                "correct_count": c,
+            }))
+        }) {
+            for r in rows.flatten() { daily_stats.push(r); }
+        }
+    }
+    // 倒序还原为时间正序
+    daily_stats.reverse();
+
+    // 各知识点掌握度
+    let mut mastery_data: Vec<serde_json::Value> = Vec::new();
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT km.knowledge_id, COALESCE(kn.name, km.knowledge_id), km.mastery_score, km.attempt_count, km.forgetting_risk
+         FROM knowledge_mastery km
+         LEFT JOIN knowledge_nodes kn ON km.knowledge_id = kn.id
+         WHERE km.student_id = ?1 ORDER BY km.mastery_score DESC"
+    ) {
+        if let Ok(rows) = stmt.query_map(rusqlite::params![student_id], |row| {
+            Ok(serde_json::json!({
+                "knowledge_id": row.get::<_, String>(0)?,
+                "name": row.get::<_, String>(1)?,
+                "mastery_score": row.get::<_, f64>(2)?,
+                "attempt_count": row.get::<_, i32>(3)?,
+                "forgetting_risk": row.get::<_, f64>(4)?,
+            }))
+        }) {
+            for r in rows.flatten() { mastery_data.push(r); }
+        }
+    }
+
+    let accuracy = if total_questions > 0 {
+        correct_count as f64 / total_questions as f64
+    } else { 0.0 };
+
+    Ok(serde_json::json!({
+        "student_id": student_id,
+        "total_questions": total_questions,
+        "correct_count": correct_count,
+        "accuracy": accuracy,
+        "total_duration_minutes": total_duration_secs / 60,
+        "learning_days": learning_days,
+        "daily_stats": daily_stats,
+        "mastery_data": mastery_data,
+    }))
+}
+
 /// 获取学生实时画像（6 层聚合，给 Practice 页右侧仪表盘用）
 ///
 /// 数据源：

@@ -778,6 +778,26 @@
   font-style: italic;
 }
 
+/* Profile 页数据来源标签 */
+.profile-source-tag {
+  display: inline-block;
+  margin-left: 12px;
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.profile-source-tag.tauri {
+  background: linear-gradient(135deg, #4ECDC4, #7EDDD6);
+  color: #fff;
+}
+.profile-source-tag.mock {
+  background: #fff7e0;
+  color: #8c5a00;
+  border: 1px dashed #FFB647;
+}
+
 /* =========================================================
    AI 出题按钮 + AI 题目标签
    ========================================================= */

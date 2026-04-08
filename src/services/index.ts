@@ -225,6 +225,28 @@ export const hintService = {
 };
 
 // === 学生模型 ===
+export interface ProfileOverview {
+  student_id: string;
+  total_questions: number;
+  correct_count: number;
+  accuracy: number;
+  total_duration_minutes: number;
+  learning_days: number;
+  daily_stats: Array<{
+    date: string;
+    duration_minutes: number;
+    question_count: number;
+    correct_count: number;
+  }>;
+  mastery_data: Array<{
+    knowledge_id: string;
+    name: string;
+    mastery_score: number;
+    attempt_count: number;
+    forgetting_risk: number;
+  }>;
+}
+
 export interface RealtimeProfile {
   student_id: string;
   knowledge_layer: {
@@ -267,6 +289,12 @@ export const studentModelService = {
 
   getState: (studentId: string) =>
     invoke('get_student_state', { studentId }),
+
+  /** 学生整体概况（Profile 页用） */
+  getProfileOverview: async (studentId: string): Promise<ProfileOverview | null> => {
+    if (!isTauri()) return null;
+    return invoke<ProfileOverview>('get_profile_overview', { studentId });
+  },
 
   /** 6 层实时画像（Practice 页右侧仪表盘用） */
   getRealtimeProfile: async (studentId: string): Promise<RealtimeProfile> => {

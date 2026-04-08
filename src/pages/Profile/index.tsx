@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import ReactECharts from 'echarts-for-react';
+import { studentModelService, type ProfileOverview } from '../../services';
+
+const STUDENT_ID = 'default-student';
 
 interface MasteryItem {
   knowledge_id: string;
@@ -52,11 +55,71 @@ const getMockProfileData = () => {
   };
 };
 
+/** 把后端 ProfileOverview 转成 Profile 页内部用的数据格式 */
+function fromBackendOverview(o: ProfileOverview): ReturnType<typeof getMockProfileData> {
+  return {
+    totalAnswers: o.total_questions,
+    correctCount: o.correct_count,
+    accuracy: o.accuracy,
+    learningDays: o.learning_days,
+    totalDurationMinutes: o.total_duration_minutes,
+    dailyStats: o.daily_stats.map((d) => ({
+      date: d.date.length >= 10 ? d.date.slice(5, 10) : d.date,
+      duration_minutes: d.duration_minutes,
+    })),
+    masteryData: o.mastery_data.map((m) => ({
+      knowledge_id: m.knowledge_id,
+      name: m.name,
+      mastery_score: m.mastery_score,
+      attempt_count: m.attempt_count,
+      forgetting_risk: m.forgetting_risk,
+    })),
+  };
+}
+
 const ProfilePage: React.FC = () => {
   const [profileData, setProfileData] = useState(getMockProfileData());
+  const [dataSource, setDataSource] = useState<'mock' | 'tauri'>('mock');
 
   useEffect(() => {
-    setProfileData(getMockProfileData());
+    let cancelled = false;
+    // 优先尝试从 Tauri 后端拿真实数据；失败 / 浏览器模式 → mock
+    studentModelService
+      .getProfileOverview(STUDENT_ID)
+      .then((real) => {
+        if (cancelled) return;
+        if (real && real.mastery_data && real.mastery_data.length > 0) {
+          setProfileData(fromBackendOverview(real));
+          setDataSource('tauri');
+          console.info('[Profile] 使用真实后端数据');
+        } else if (real) {
+          // 后端有响应但 mastery 为空 → 学生还没做过题：显示空状态但用真实统计
+          setProfileData((prev) => ({
+            ...prev,
+            totalAnswers: real.total_questions,
+            correctCount: real.correct_count,
+            accuracy: real.accuracy,
+            learningDays: real.learning_days,
+            totalDurationMinutes: real.total_duration_minutes,
+            dailyStats: real.daily_stats.length > 0
+              ? real.daily_stats.map((d) => ({
+                  date: d.date.length >= 10 ? d.date.slice(5, 10) : d.date,
+                  duration_minutes: d.duration_minutes,
+                }))
+              : prev.dailyStats,
+          }));
+          setDataSource('tauri');
+          console.info('[Profile] 真实后端但暂无 mastery 数据，使用 mock mastery');
+        } else {
+          setProfileData(getMockProfileData());
+          setDataSource('mock');
+        }
+      })
+      .catch((e) => {
+        console.warn('[Profile] 后端拉取失败，回退 mock:', e);
+        if (!cancelled) setProfileData(getMockProfileData());
+      });
+    return () => { cancelled = true; };
   }, []);
 
   // === ECharts 雷达图配置 ===
@@ -230,7 +293,12 @@ const ProfilePage: React.FC = () => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <h1 className="page-title">👤 我的学习画像</h1>
+      <h1 className="page-title">
+        👤 我的学习画像
+        <span className={`profile-source-tag ${dataSource}`}>
+          {dataSource === 'tauri' ? '✅ 实时数据' : '🧪 演示数据'}
+        </span>
+      </h1>
 
       {/* 概况卡片 */}
       <div className="profile-stats-grid">
