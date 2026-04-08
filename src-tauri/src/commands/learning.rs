@@ -91,10 +91,9 @@ pub async fn submit_answer(
         ).map_err(|_| AppError::NotFound(format!("会话 {} 不存在", session_id)))?
     };
 
-    // 从题库查找题目信息进行判题
-    let question_info = state.question_bank.questions.iter()
-        .find(|q| q.id == question_id)
-        .cloned();
+    // 从题库查找题目信息进行判题（先查 AI 动态出题缓存，再查静态题库）
+    let question_info = state.ai_questions.get(&question_id).map(|r| r.clone())
+        .or_else(|| state.question_bank.questions.iter().find(|q| q.id == question_id).cloned());
 
     let student_answer_str = match &answer {
         serde_json::Value::String(s) => s.clone(),

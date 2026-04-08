@@ -13,7 +13,7 @@ import {
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useQuestionStore, type Question } from '../../stores/useQuestionStore';
-import { questionBankService, saveMockAnswerRecord, learningService } from '../../services';
+import { questionBankService, saveMockAnswerRecord, learningService, questionService } from '../../services';
 import HintPanel from '../../components/learning/HintPanel';
 import ExplanationPanel from '../../components/learning/ExplanationPanel';
 import StudentDashboard from '../../components/learning/StudentDashboard';
@@ -982,6 +982,33 @@ const PracticePage: React.FC = () => {
     setExplainOpen(true);
   }, []);
 
+  // AI 出题：根据当前单元 + 难度调 LLM 生成新题，插入到下一题位置
+  const [aiLoading, setAiLoading] = useState(false);
+  const handleAiQuestion = useCallback(async () => {
+    const q = store.currentQuestion();
+    if (!q || aiLoading) return;
+    setAiLoading(true);
+    try {
+      const aiQ = await questionService.generateAiQuestion(STUDENT_ID, q.unit, q.difficulty);
+      // 插入到下一题位置
+      store.insertNextQuestion({
+        id: aiQ.id,
+        unit: aiQ.unit,
+        semester: aiQ.semester,
+        question_type: aiQ.question_type,
+        content_latex: aiQ.content_latex,
+        answer_latex: aiQ.answer_latex,
+        difficulty: aiQ.difficulty,
+      });
+      console.info('[AI 出题] 成功:', aiQ.id, aiQ.content_latex);
+    } catch (e) {
+      console.error('[AI 出题] 失败:', e);
+      alert('AI 出题失败：' + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setAiLoading(false);
+    }
+  }, [store, aiLoading]);
+
   // 重新来一组
   const handleRetry = useCallback(async () => {
     setLoading(true);
@@ -1104,6 +1131,9 @@ const PracticePage: React.FC = () => {
             <div className="question-card-header">
               <div className="question-type-tag">
                 <span>{question.question_type}</span>
+                {question.id.startsWith('ai-') && (
+                  <span className="ai-question-tag">✨ AI 生成</span>
+                )}
               </div>
               <div className="question-difficulty">
                 {[1, 2, 3, 4, 5].map((d) => (
@@ -1113,6 +1143,14 @@ const PracticePage: React.FC = () => {
                   />
                 ))}
               </div>
+              <button
+                className="ai-question-btn"
+                onClick={handleAiQuestion}
+                disabled={aiLoading}
+                title="让 AI 根据你的薄弱点生成一道新题，插入到下一题"
+              >
+                {aiLoading ? '生成中...' : '✨ AI 出题'}
+              </button>
             </div>
 
             {/* 题目内容 */}

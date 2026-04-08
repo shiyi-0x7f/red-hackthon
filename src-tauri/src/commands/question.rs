@@ -2,6 +2,8 @@ use tauri::State;
 use std::collections::HashMap;
 use crate::state::AppState;
 use crate::error::{AppError, AppResult};
+use crate::ai::llm_client::{Message, LLMOptions};
+use crate::ai::prompts;
 
 /// 生成练习题
 ///
@@ -101,6 +103,132 @@ pub async fn generate_quiz(
         "total": questions_json.len(),
         "questions": questions_json,
     }))
+}
+
+/// AI 动态出题
+///
+/// 行为：
+/// 1. 取学生薄弱知识点（mastery_score 最低的 3 个）作为提示
+/// 2. 调 LLM 生成一道符合 unit + difficulty 的题
+/// 3. 解析 JSON，给题分配一个 ai-xxxx 的 id，注入到 question_bank（内存）以便后续判题
+///    （注：因 question_bank 是只读 Arc，这里返回题目数据让前端塞进 store；
+///     后端再用一个 ai_questions DashMap 缓存题目，submit_answer 才能找到它）
+#[tauri::command]
+pub async fn generate_ai_question(
+    student_id: String,
+    unit: String,
+    difficulty: Option<i32>,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    let difficulty = difficulty.unwrap_or(2).clamp(1, 5);
+    tracing::info!("AI 出题: student={} unit={} difficulty={}", student_id, unit, difficulty);
+
+    // 取学生年级 + 薄弱知识点
+    let (grade, weak_topics) = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let grade: i32 = db.query_row(
+            "SELECT grade FROM students WHERE id = ?1",
+            rusqlite::params![student_id],
+            |row| row.get(0),
+        ).unwrap_or(6);
+
+        let mut topics: Vec<String> = Vec::new();
+        if let Ok(mut stmt) = db.prepare(
+            "SELECT COALESCE(kn.name, km.knowledge_id) FROM knowledge_mastery km
+             LEFT JOIN knowledge_nodes kn ON km.knowledge_id = kn.id
+             WHERE km.student_id = ?1 ORDER BY km.mastery_score ASC LIMIT 3"
+        ) {
+            if let Ok(rows) = stmt.query_map(rusqlite::params![student_id], |row| row.get::<_, String>(0)) {
+                for r in rows.flatten() { topics.push(r); }
+            }
+        }
+        (grade, topics)
+    };
+
+    // LLM 出题
+    let llm_clone = {
+        let guard = state.llm_client.lock().map_err(|e: std::sync::PoisonError<_>| AppError::Internal(e.to_string()))?;
+        guard.clone()
+    };
+    let llm = match llm_clone {
+        Some(c) => c,
+        None => return Err(AppError::LLMError("AI 出题需要先在设置页配置 API Key".to_string())),
+    };
+
+    let prompt = prompts::generate_question(grade, &unit, difficulty, &weak_topics);
+    let messages = vec![
+        Message {
+            role: "system".to_string(),
+            content: "你是数学命题老师，必须以严格 JSON 输出，不要任何其他文字。".to_string(),
+        },
+        Message { role: "user".to_string(), content: prompt },
+    ];
+    let opts = LLMOptions {
+        temperature: Some(0.8),
+        max_tokens: Some(500),
+        top_p: Some(0.9),
+    };
+
+    let raw = llm.complete(&messages, &opts).await
+        .map_err(|e| AppError::LLMError(format!("LLM 出题失败: {}", e)))?;
+
+    let parsed = parse_ai_question_json(&raw)
+        .ok_or_else(|| AppError::LLMError(format!("LLM 输出无法解析为题目 JSON: {}", &raw[..raw.len().min(200)])))?;
+
+    // 生成 id 并写入 ai_questions 缓存（让 submit_answer 能找到）
+    let q_id = format!("ai-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("xxxx"));
+    let q_type = parsed.get("question_type").and_then(|v| v.as_str()).unwrap_or("填空题").to_string();
+    let content = parsed.get("content_latex").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let answer = parsed.get("answer_latex").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let unit_out = parsed.get("unit").and_then(|v| v.as_str()).unwrap_or(&unit).to_string();
+    let hint = parsed.get("hint").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+    let ai_q = crate::services::question_bank::BaseQuestion {
+        id: q_id.clone(),
+        unit: unit_out.clone(),
+        semester: "AI".to_string(),
+        question_type: q_type.clone(),
+        content_latex: content.clone(),
+        answer_latex: answer.clone(),
+        difficulty,
+    };
+    state.ai_questions.insert(q_id.clone(), ai_q);
+
+    Ok(serde_json::json!({
+        "id": q_id,
+        "unit": unit_out,
+        "semester": "AI",
+        "question_type": q_type,
+        "content_latex": content,
+        "answer_latex": answer,
+        "difficulty": difficulty,
+        "hint": hint,
+        "ai_generated": true,
+    }))
+}
+
+/// 解析 LLM 出题返回的 JSON（兼容裸 JSON / ```json 包裹 / 花括号片段）
+fn parse_ai_question_json(raw: &str) -> Option<serde_json::Value> {
+    let trimmed = raw.trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if v.is_object() && v.get("content_latex").is_some() { return Some(v); }
+    }
+    if let Some(start) = trimmed.find("```json") {
+        let after = &trimmed[start + 7..];
+        if let Some(end) = after.find("```") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(after[..end].trim()) {
+                if v.is_object() { return Some(v); }
+            }
+        }
+    }
+    if let (Some(s), Some(e)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&trimmed[s..=e]) {
+                if v.is_object() { return Some(v); }
+            }
+        }
+    }
+    None
 }
 
 /// 获取题库概览

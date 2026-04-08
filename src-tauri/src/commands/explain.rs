@@ -26,13 +26,9 @@ pub async fn generate_explanation_stream(
 ) -> AppResult<serde_json::Value> {
     tracing::info!("讲解请求: {} (req={})", question_id, request_id);
 
-    // === 1. 取题目信息 ===
-    let question = state
-        .question_bank
-        .questions
-        .iter()
-        .find(|q| q.id == question_id)
-        .cloned()
+    // === 1. 取题目信息（AI 动态题优先） ===
+    let question = state.ai_questions.get(&question_id).map(|r| r.clone())
+        .or_else(|| state.question_bank.questions.iter().find(|q| q.id == question_id).cloned())
         .ok_or_else(|| AppError::NotFound(format!("题目 {} 不存在", question_id)))?;
 
     // === 2. 命中缓存？===
@@ -215,12 +211,8 @@ pub async fn get_layered_hint(
     let level = level.clamp(1, 3);
     tracing::info!("提示请求: {} level={}", question_id, level);
 
-    let question = state
-        .question_bank
-        .questions
-        .iter()
-        .find(|q| q.id == question_id)
-        .cloned()
+    let question = state.ai_questions.get(&question_id).map(|r| r.clone())
+        .or_else(|| state.question_bank.questions.iter().find(|q| q.id == question_id).cloned())
         .ok_or_else(|| AppError::NotFound(format!("题目 {} 不存在", question_id)))?;
 
     let llm_clone = {

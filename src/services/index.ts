@@ -38,9 +38,33 @@ export const knowledgeService = {
 };
 
 // === 题库 ===
+export interface AIQuestion {
+  id: string;
+  unit: string;
+  semester: string;
+  question_type: string;
+  content_latex: string;
+  answer_latex: string;
+  difficulty: number;
+  hint?: string;
+  ai_generated: boolean;
+}
+
 export const questionService = {
   generateQuiz: (studentId: string, knowledgeIds: string[], count?: number) =>
     invoke('generate_quiz', { studentId, knowledgeIds, count }),
+
+  /** AI 动态出题（需要 API Key） */
+  generateAiQuestion: async (
+    studentId: string,
+    unit: string,
+    difficulty?: number,
+  ): Promise<AIQuestion> => {
+    if (!isTauri()) {
+      throw new Error('AI 出题仅在 Tauri 环境可用');
+    }
+    return invoke<AIQuestion>('generate_ai_question', { studentId, unit, difficulty });
+  },
 };
 
 // === 学习引擎 ===

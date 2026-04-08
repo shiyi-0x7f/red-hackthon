@@ -52,6 +52,8 @@ interface QuestionState {
   incrementHints: () => void;
   /** 后端 LLM 判题结果覆盖前端规则判题 */
   correctLastFeedback: (isCorrect: boolean) => void;
+  /** 在当前位置之后插入一道新题（用于 AI 动态出题） */
+  insertNextQuestion: (q: Question) => void;
 
   // Computed
   currentQuestion: () => Question | null;
@@ -140,6 +142,12 @@ export const useQuestionStore = create<QuestionState>((set, get) => ({
       answers: newAnswers,
       lastFeedback: { ...state.lastFeedback, isCorrect },
     };
+  }),
+
+  insertNextQuestion: (q) => set((state) => {
+    const newQs = [...state.questions];
+    newQs.splice(state.currentIndex + 1, 0, q);
+    return { questions: newQs, finished: false };
   }),
 
   reset: () =>

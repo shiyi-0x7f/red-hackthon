@@ -123,6 +123,55 @@ pub fn layered_hint(question: &str, correct_answer: &str, level: i32, grade: i32
     )
 }
 
+/// AI 动态出题 Prompt
+///
+/// 输入：年级、单元、目标难度（1~5）、薄弱知识点（可选）
+/// 输出：严格 JSON
+pub fn generate_question(grade: i32, unit: &str, difficulty: i32, weak_topics: &[String]) -> String {
+    let weak_hint = if weak_topics.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\n该学生最薄弱的知识点是：{}。如可能，让题目和这些薄弱点相关。",
+            weak_topics.join("、")
+        )
+    };
+    let diff_label = match difficulty {
+        1 => "非常基础（直接套公式）",
+        2 => "基础（一步运算）",
+        3 => "中等（需要 2~3 步推理）",
+        4 => "较难（需要综合运用 + 审题）",
+        _ => "挑战（多步骤 + 应用题）",
+    };
+    format!(
+        "你是一位{grade}年级人教版小学数学命题老师。请为学生出一道题。\n\n\
+         要求：\n\
+         - 单元：{unit}\n\
+         - 难度：{diff_label}（1~5 等级中的 {difficulty}）\n\
+         - 题型从以下选一种：填空题 / 计算题 / 应用题 / 判断题 / 比较题{weak_hint}\n\n\
+         严格按以下 JSON 格式输出，不要 markdown 代码块包裹，不要任何额外文字：\n\
+         {{\n\
+           \"question_type\": \"填空题|计算题|应用题|判断题|比较题\",\n\
+           \"content_latex\": \"题目内容，数学符号用 LaTeX（如 \\\\frac{{1}}{{2}}），需要填空的位置用 （\\\\;\\\\;）\",\n\
+           \"answer_latex\": \"标准答案，纯文本或 LaTeX\",\n\
+           \"difficulty\": {difficulty},\n\
+           \"unit\": \"{unit}\",\n\
+           \"hint\": \"一句话解题思路（不超过 30 字）\"\n\
+         }}\n\n\
+         约束：\n\
+         - 题目必须有唯一确定答案\n\
+         - 答案必须可以用普通数字、分数、百分数或单一数学表达式回答\n\
+         - 不要出选择题（A/B/C/D）\n\
+         - content_latex 中的反斜杠在 JSON 里要双写：\\\\frac{{1}}{{2}}\n\
+         - 应用题不要超过 80 字",
+        grade = grade,
+        unit = unit,
+        difficulty = difficulty,
+        diff_label = diff_label,
+        weak_hint = weak_hint
+    )
+}
+
 /// 讲解 + 可视化 Prompt — 让 LLM 流式输出讲解，并附带 JSXGraph/分数条 spec
 ///
 /// 输出格式约定（关键！）：

@@ -58,6 +58,7 @@ pub fn run() {
             // 题库
             commands::question::generate_quiz,
             commands::question::get_question_bank_overview,
+            commands::question::generate_ai_question,
             // 学习主引擎
             commands::learning::start_session,
             commands::learning::submit_answer,

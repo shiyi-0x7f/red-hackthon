@@ -5,7 +5,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::db;
 use crate::ai::llm_client::LLMClient;
-use crate::services::question_bank::QuestionBank;
+use crate::services::question_bank::{QuestionBank, BaseQuestion};
 
 /// 学生实时状态（内存缓存）
 #[derive(Debug, Clone, serde::Serialize)]
@@ -36,6 +36,8 @@ pub struct AppState {
     pub question_bank: QuestionBank,
     /// LLM 客户端（可选，有 API Key 时可用）
     pub llm_client: Mutex<Option<LLMClient>>,
+    /// AI 动态生成的题目缓存（key=question_id），让 submit_answer 能找到
+    pub ai_questions: DashMap<String, BaseQuestion>,
 }
 
 impl AppState {
@@ -69,6 +71,7 @@ impl AppState {
             data_dir,
             question_bank,
             llm_client: Mutex::new(llm_client),
+            ai_questions: DashMap::new(),
         })
     }
 
