@@ -936,6 +936,271 @@
 }
 
 /* =========================================================
+   兴趣画像
+   ========================================================= */
+.interest-profile-card {
+  margin-top: 24px;
+}
+
+.interest-loading {
+  padding: 20px 0;
+  text-align: center;
+  color: #9892c0;
+  font-size: 13px;
+}
+
+.interest-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.interest-category {
+  padding: 12px 14px;
+  background: #faf8ff;
+  border-radius: 12px;
+  border: 1px solid #ece9ff;
+}
+
+.interest-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.interest-category-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #4a3e85;
+}
+.interest-count {
+  margin-left: 4px;
+  color: #9892c0;
+  font-weight: 400;
+}
+
+.interest-add-btn {
+  padding: 4px 12px;
+  background: transparent;
+  color: #7C5CFC;
+  border: 1px solid #c9beff;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.interest-add-btn:hover {
+  background: #7C5CFC;
+  color: #fff;
+}
+
+.interest-add-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.interest-add-input {
+  flex: 1;
+  padding: 6px 12px;
+  border: 1px solid #c9beff;
+  border-radius: 10px;
+  font-size: 13px;
+  outline: none;
+}
+.interest-add-input:focus {
+  border-color: #7C5CFC;
+}
+.interest-confirm-btn {
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #7C5CFC, #54B5FF);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.interest-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.interest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.interest-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: #fff;
+  border: 1px solid #d5ccff;
+  border-radius: 16px;
+  font-size: 13px;
+  color: #4a3e85;
+  font-weight: 500;
+}
+.interest-chip.source-extracted {
+  background: linear-gradient(135deg, #fff7e0, #ffeec2);
+  border-color: #ffd58f;
+}
+.interest-chip-source-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  background: linear-gradient(135deg, #FF9800, #FFB647);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.interest-chip-del {
+  background: transparent;
+  border: none;
+  color: #9892c0;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+.interest-chip-del:hover {
+  color: #e74c3c;
+}
+.interest-empty {
+  font-size: 12px;
+  color: #9892c0;
+  font-style: italic;
+}
+
+/* =========================================================
+   开场 / 收场 Check-in Modal
+   ========================================================= */
+.checkin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(12, 10, 30, 0.4);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.checkin-panel {
+  width: min(460px, 100%);
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(44, 36, 120, 0.25);
+  padding: 26px 28px;
+}
+
+.checkin-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.checkin-avatar {
+  font-size: 28px;
+}
+.checkin-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #4a3e85;
+}
+
+.checkin-question {
+  font-size: 15px;
+  color: #2c2550;
+  line-height: 1.7;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, #f7f5ff, #f0f8ff);
+  border-radius: 14px;
+  margin-bottom: 14px;
+}
+
+.checkin-input {
+  width: 100%;
+  min-height: 100px;
+  padding: 12px 14px;
+  border: 1px solid #e6e1ff;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #2c2550;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+}
+.checkin-input:focus {
+  border-color: #7C5CFC;
+}
+
+.checkin-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.checkin-skip {
+  padding: 10px 22px;
+  background: #f7f5ff;
+  color: #7b77a3;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+.checkin-submit {
+  padding: 10px 24px;
+  background: linear-gradient(135deg, #7C5CFC 0%, #54B5FF 100%);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+}
+.checkin-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.checkin-done {
+  padding: 18px 14px;
+  text-align: center;
+}
+.checkin-done-head {
+  font-size: 15px;
+  color: #4a3e85;
+  line-height: 1.7;
+  margin-bottom: 12px;
+}
+.checkin-extracted-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.checkin-extracted-chip {
+  display: inline-block;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #fff7e0, #ffeec2);
+  border: 1px solid #ffd58f;
+  border-radius: 16px;
+  color: #6c5400;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* =========================================================
    Home 页对话节奏控制条
    ========================================================= */
 .chat-pacing-bar {

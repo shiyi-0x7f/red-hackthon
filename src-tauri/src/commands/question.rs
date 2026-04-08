@@ -4,6 +4,7 @@ use crate::state::AppState;
 use crate::error::{AppError, AppResult};
 use crate::ai::llm_client::{Message, LLMOptions};
 use crate::ai::prompts;
+use crate::commands::interests::build_interest_context;
 
 /// 生成练习题
 ///
@@ -155,7 +156,8 @@ pub async fn generate_ai_question(
         None => return Err(AppError::LLMError("AI 出题需要先在设置页配置 API Key".to_string())),
     };
 
-    let prompt = prompts::generate_question(grade, &unit, difficulty, &weak_topics);
+    let interest_context = build_interest_context(&state, &student_id);
+    let prompt = prompts::generate_question(grade, &unit, difficulty, &weak_topics, &interest_context);
     let messages = vec![
         Message {
             role: "system".to_string(),

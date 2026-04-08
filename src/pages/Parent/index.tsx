@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import ParentRealtimePanel from '../../components/learning/ParentRealtimePanel';
+import InterestProfile from '../../components/learning/InterestProfile';
 import '../../styles/learning-extras.css';
 
 const ParentPage: React.FC = () => {
@@ -64,6 +65,9 @@ const ParentPage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* 兴趣画像（readonly，让家长了解孩子兴趣背景）*/}
+      <InterestProfile studentId="default-student" readonly />
 
       {/* 6 层实时画像（含敏感行为/状态指标，仅家长可见）*/}
       <ParentRealtimePanel studentId="default-student" />

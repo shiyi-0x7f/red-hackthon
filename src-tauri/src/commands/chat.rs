@@ -4,6 +4,7 @@ use crate::error::{AppError, AppResult};
 use crate::ai::llm_client::{Message, LLMOptions};
 use crate::ai::prompts;
 use crate::ai::safety;
+use crate::commands::interests::build_interest_context;
 
 /// 发送聊天消息（JSON 结构化输出）
 #[tauri::command]
@@ -161,6 +162,12 @@ pub async fn send_chat_message(
         tracing::info!("RAG 检索到学习上下文 ({} 字符)", learning_context.len());
     }
 
+    // === RAG: 兴趣 / 背景上下文 ===
+    let interest_context = build_interest_context(&state, &student_id);
+    if !interest_context.is_empty() {
+        tracing::info!("RAG 注入兴趣上下文 ({} 字符)", interest_context.len());
+    }
+
     let reply = if let Some(llm) = llm_clone {
         // 构建消息列表
         let mut messages = vec![
@@ -177,6 +184,17 @@ pub async fn send_chat_message(
                 content: format!(
                     "以下是该学生的学习数据，请根据这些数据回答学生的问题：\n\n{}",
                     learning_context
+                ),
+            });
+        }
+
+        // 注入兴趣 / 背景上下文
+        if !interest_context.is_empty() {
+            messages.push(Message {
+                role: "system".to_string(),
+                content: format!(
+                    "以下是该学生的兴趣和背景信息，请在回复中自然地体现对这些兴趣的了解（例如举例时选他喜欢的话题），但不要生硬地列举：\n\n{}",
+                    interest_context
                 ),
             });
         }

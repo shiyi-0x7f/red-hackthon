@@ -89,6 +89,13 @@ pub fn run() {
             // 讲解 + 提示（P0）
             commands::explain::generate_explanation_stream,
             commands::explain::get_layered_hint,
+            // 兴趣画像（P4）
+            commands::interests::list_interests,
+            commands::interests::add_interest,
+            commands::interests::delete_interest,
+            commands::interests::extract_interests_from_text,
+            commands::interests::get_student_background,
+            commands::interests::update_student_background,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Tauri 应用时出错");

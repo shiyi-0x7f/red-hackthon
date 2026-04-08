@@ -123,6 +123,53 @@ pub fn layered_hint(question: &str, correct_answer: &str, level: i32, grade: i32
     )
 }
 
+/// 开场 / 收场对话 Prompt
+///
+/// 用于 Practice 开始前 / 总结后的 check-in。不要做题，只做关心式闲聊。
+/// phase: "opening" 开场前 | "closing" 收场后
+pub fn checkin_persona(grade: i32, phase: &str) -> String {
+    let phase_desc = match phase {
+        "opening" => "学生马上要开始今天的数学练习。请用一句话（15~25字）亲切地跟学生打招呼，并自然地问一个关于他兴趣/生活的开放性小问题（比如最近在看什么书 / 喜欢什么运动 / 周末做了什么有趣的事），帮你之后出题更贴近他的生活。",
+        _ => "学生刚刚做完一组数学题。请用一句话（15~25字）温暖地鼓励一下，并自然地问一个关于他兴趣/生活的开放性小问题（比如等下想做点什么放松 / 最近在迷什么动画 / 周末家里有什么好玩的事）。",
+    };
+    format!(
+        "你是一位温暖的{grade}年级小学生学习搭子。\n\n\
+         {phase_desc}\n\n\
+         要求：\n\
+         - 不要出题、不要讲解\n\
+         - 不要贴标签（不说性格、不评判）\n\
+         - 用「我们」多于「你」\n\
+         - 结尾必须是一个开放性问题，让学生愿意聊聊自己\n\
+         - 直接输出文本，不要 JSON 或 markdown"
+    )
+}
+
+/// 从学生对话中提取兴趣 Prompt
+///
+/// 输入：学生最近 N 轮对话片段
+/// 输出：严格 JSON 数组 [{category, name, affinity, notes}]
+pub fn extract_interests(student_text: &str) -> String {
+    format!(
+        "你是一位善于观察的小学班主任。请从下面学生说的话里，提取出可能反映他兴趣 / 爱好 / 阅读 / 家庭背景的信息。\n\n\
+         学生说：\n\"\"\"\n{student_text}\n\"\"\"\n\n\
+         请严格按 JSON 数组格式输出，不要 markdown 代码块包裹，不要任何额外文字。\n\
+         每个元素结构：\n\
+         {{\n\
+           \"category\": \"hobby|book|movie|music|sport|food|family|other\",\n\
+           \"name\": \"具体名称，如「哆啦A梦」「足球」「小鸡炖蘑菇」\",\n\
+           \"affinity\": 0.0 到 1.0 的数字（强烈喜欢给 0.9，一般提到给 0.6）,\n\
+           \"notes\": \"从原话里摘的关键句，10 字内\"\n\
+         }}\n\n\
+         约束：\n\
+         - 如果话里完全没有可提取的兴趣信息，返回 []\n\
+         - 不要捏造没出现的东西\n\
+         - 每条都必须是学生真实说的具体事物\n\
+         - 最多返回 5 条\n\
+         - 如果是家庭背景（爷爷奶奶 / 哥哥姐姐等）归入 family 类别",
+        student_text = student_text
+    )
+}
+
 /// 个性化会话总结 Prompt
 ///
 /// 输入：本次会话答题摘要 + 学生整体掌握度
@@ -172,15 +219,29 @@ pub fn session_summary(
 
 /// AI 动态出题 Prompt
 ///
-/// 输入：年级、单元、目标难度（1~5）、薄弱知识点（可选）
+/// 输入：年级、单元、目标难度（1~5）、薄弱知识点（可选）、兴趣上下文（可选）
 /// 输出：严格 JSON
-pub fn generate_question(grade: i32, unit: &str, difficulty: i32, weak_topics: &[String]) -> String {
+pub fn generate_question(
+    grade: i32,
+    unit: &str,
+    difficulty: i32,
+    weak_topics: &[String],
+    interest_context: &str,
+) -> String {
     let weak_hint = if weak_topics.is_empty() {
         String::new()
     } else {
         format!(
             "\n\n该学生最薄弱的知识点是：{}。如可能，让题目和这些薄弱点相关。",
             weak_topics.join("、")
+        )
+    };
+    let interest_hint = if interest_context.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\n该学生的兴趣背景：\n{}\n\n请在题目的情境里尽量融入他喜欢的话题（比如他喜欢足球就用「射门命中率」做百分数题），让题目对他更有吸引力。",
+            interest_context
         )
     };
     let diff_label = match difficulty {
@@ -210,12 +271,13 @@ pub fn generate_question(grade: i32, unit: &str, difficulty: i32, weak_topics: &
          - 答案必须可以用普通数字、分数、百分数或单一数学表达式回答\n\
          - 不要出选择题（A/B/C/D）\n\
          - content_latex 中的反斜杠在 JSON 里要双写：\\\\frac{{1}}{{2}}\n\
-         - 应用题不要超过 80 字",
+         - 应用题不要超过 80 字{interest_hint}",
         grade = grade,
         unit = unit,
         difficulty = difficulty,
         diff_label = diff_label,
-        weak_hint = weak_hint
+        weak_hint = weak_hint,
+        interest_hint = interest_hint,
     )
 }
 

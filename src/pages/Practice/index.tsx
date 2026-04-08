@@ -17,6 +17,7 @@ import { questionBankService, saveMockAnswerRecord, learningService, questionSer
 import HintPanel from '../../components/learning/HintPanel';
 import ExplanationPanel from '../../components/learning/ExplanationPanel';
 import StudentDashboard from '../../components/learning/StudentDashboard';
+import CheckinModal from '../../components/learning/CheckinModal';
 import '../../styles/practice.css';
 import '../../styles/learning-extras.css';
 
@@ -916,6 +917,16 @@ const PracticePage: React.FC = () => {
   const [aiBadge, setAiBadge] = useState<string | null>(null);
   const [aiErrorType, setAiErrorType] = useState<string | null>(null);
   const [autopilotEnabled, setAutopilotEnabled] = useState(true);
+  const [openingCheckinOpen, setOpeningCheckinOpen] = useState(false);
+  const [closingCheckinOpen, setClosingCheckinOpen] = useState(false);
+
+  // 进入总结页时自动弹收场 check-in（每会话只一次）
+  useEffect(() => {
+    if (store.finished && !sessionStorage.getItem('closing_checkin_shown')) {
+      sessionStorage.setItem('closing_checkin_shown', '1');
+      setTimeout(() => setClosingCheckinOpen(true), 1500);
+    }
+  }, [store.finished]);
 
   // 单元名映射（从 URL param 到实际单元名）
   const UNIT_MAP: Record<string, string> = {
@@ -959,6 +970,19 @@ const PracticePage: React.FC = () => {
     }
 
     loadQuiz();
+
+    // 开场 check-in：每个 session 显示一次，非阻塞（学生可跳过）
+    // 用 sessionStorage 避免同一个 session 刷新重复弹
+    const checkinKey = 'opening_checkin_shown';
+    if (!sessionStorage.getItem(checkinKey)) {
+      setTimeout(() => {
+        if (!cancelled) {
+          setOpeningCheckinOpen(true);
+          sessionStorage.setItem(checkinKey, '1');
+        }
+      }, 800);
+    }
+
     return () => { cancelled = true; };
   }, [unitId]);
 
@@ -1153,11 +1177,20 @@ const PracticePage: React.FC = () => {
   // 总结页
   if (store.finished) {
     return (
-      <SummaryView
-        onGoBack={() => navigate('/learn')}
-        onRetry={handleRetry}
-        sessionId={sessionId}
-      />
+      <>
+        <SummaryView
+          onGoBack={() => navigate('/learn')}
+          onRetry={handleRetry}
+          sessionId={sessionId}
+        />
+        {/* 收场 check-in：只在进入总结页后弹一次 */}
+        <CheckinModal
+          open={closingCheckinOpen}
+          phase="closing"
+          studentId={STUDENT_ID}
+          onClose={() => setClosingCheckinOpen(false)}
+        />
+      </>
     );
   }
 
@@ -1329,6 +1362,14 @@ const PracticePage: React.FC = () => {
 
       {/* 实时学生画像（右侧固定面板，每次答题后刷新） */}
       <StudentDashboard studentId={STUDENT_ID} refreshKey={store.answers.length} />
+
+      {/* 开场 check-in（每 session 仅一次） */}
+      <CheckinModal
+        open={openingCheckinOpen}
+        phase="opening"
+        studentId={STUDENT_ID}
+        onClose={() => setOpeningCheckinOpen(false)}
+      />
     </div>
   );
 };

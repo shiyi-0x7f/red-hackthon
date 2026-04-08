@@ -5,6 +5,7 @@ use crate::db::connection;
 const MIGRATIONS: &[(&str, &str)] = &[
     ("001_init", include_str!("../../migrations/001_init.sql")),
     ("002_p0_features", include_str!("../../migrations/002_p0_features.sql")),
+    ("003_interests", include_str!("../../migrations/003_interests.sql")),
 ];
 
 /// 运行所有待执行的迁移

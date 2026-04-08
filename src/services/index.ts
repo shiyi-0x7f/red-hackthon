@@ -468,6 +468,122 @@ export const parentService = {
     invoke('get_mastery_overview', { studentId }),
 };
 
+// === 兴趣画像 ===
+export interface InterestItem {
+  id: number;
+  category: string;
+  name: string;
+  affinity: number;
+  source: 'manual' | 'extracted';
+  notes: string | null;
+  created_at: string;
+}
+
+export interface StudentBackground {
+  student_id: string;
+  nickname: string | null;
+  school: string | null;
+  hobby_summary: string | null;
+  family_notes: string | null;
+  dream: string | null;
+}
+
+const MOCK_INTERESTS_STORE: InterestItem[] = [];
+let _mockInterestId = 1;
+
+export const interestService = {
+  list: async (studentId: string): Promise<InterestItem[]> => {
+    if (!isTauri()) {
+      return [...MOCK_INTERESTS_STORE];
+    }
+    return invoke<InterestItem[]>('list_interests', { studentId });
+  },
+
+  add: async (
+    studentId: string,
+    category: string,
+    name: string,
+    affinity: number = 0.8,
+    notes?: string,
+  ): Promise<number> => {
+    if (!isTauri()) {
+      const existing = MOCK_INTERESTS_STORE.find((i) => i.category === category && i.name === name);
+      if (existing) {
+        existing.affinity = affinity;
+        return existing.id;
+      }
+      const id = _mockInterestId++;
+      MOCK_INTERESTS_STORE.push({
+        id, category, name, affinity,
+        source: 'manual',
+        notes: notes ?? null,
+        created_at: new Date().toISOString(),
+      });
+      return id;
+    }
+    return invoke<number>('add_interest', { studentId, category, name, affinity, notes });
+  },
+
+  delete: async (id: number): Promise<boolean> => {
+    if (!isTauri()) {
+      const idx = MOCK_INTERESTS_STORE.findIndex((i) => i.id === id);
+      if (idx >= 0) { MOCK_INTERESTS_STORE.splice(idx, 1); return true; }
+      return false;
+    }
+    return invoke<boolean>('delete_interest', { id });
+  },
+
+  extractFromText: async (studentId: string, text: string): Promise<{ extracted: Array<Record<string, unknown>>; inserted_count: number }> => {
+    if (!isTauri()) {
+      // 简单 mock：按关键词匹配
+      const keywords: Array<{ kw: string; category: string; name: string }> = [
+        { kw: '足球', category: 'sport', name: '足球' },
+        { kw: '篮球', category: 'sport', name: '篮球' },
+        { kw: '哆啦a梦', category: 'movie', name: '哆啦A梦' },
+        { kw: '哆啦A梦', category: 'movie', name: '哆啦A梦' },
+        { kw: '钢琴', category: 'hobby', name: '钢琴' },
+        { kw: '画画', category: 'hobby', name: '画画' },
+        { kw: '奶奶', category: 'family', name: '奶奶' },
+      ];
+      const text_lower = text.toLowerCase();
+      const extracted = keywords
+        .filter((k) => text_lower.includes(k.kw.toLowerCase()))
+        .map((k) => ({ category: k.category, name: k.name, affinity: 0.8, notes: '（mock 抽取）' }));
+      for (const it of extracted) {
+        await interestService.add(studentId, it.category as string, it.name as string, it.affinity as number);
+      }
+      return { extracted, inserted_count: extracted.length };
+    }
+    return invoke('extract_interests_from_text', { studentId, text });
+  },
+
+  getBackground: async (studentId: string): Promise<StudentBackground> => {
+    if (!isTauri()) {
+      return { student_id: studentId, nickname: null, school: null, hobby_summary: null, family_notes: null, dream: null };
+    }
+    return invoke<StudentBackground>('get_student_background', { studentId });
+  },
+
+  updateBackground: async (
+    studentId: string,
+    updates: Partial<Omit<StudentBackground, 'student_id'>>,
+  ): Promise<void> => {
+    if (!isTauri()) return;
+    return invoke('update_student_background', { studentId, ...updates });
+  },
+};
+
+export const INTEREST_CATEGORIES: Array<{ key: string; label: string; emoji: string }> = [
+  { key: 'hobby', label: '爱好', emoji: '🎨' },
+  { key: 'sport', label: '运动', emoji: '⚽' },
+  { key: 'book', label: '读过的书', emoji: '📚' },
+  { key: 'movie', label: '看过的片', emoji: '🎬' },
+  { key: 'music', label: '听过的歌', emoji: '🎵' },
+  { key: 'food', label: '喜欢吃', emoji: '🍜' },
+  { key: 'family', label: '家人', emoji: '👨‍👩‍👧' },
+  { key: 'other', label: '其他', emoji: '✨' },
+];
+
 // === 设置 ===
 export const settingsService = {
   saveApiKey: (apiKey: string, model?: string) =>

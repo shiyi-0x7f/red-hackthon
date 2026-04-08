@@ -9,3 +9,4 @@ pub mod chat;
 pub mod parent;
 pub mod settings;
 pub mod explain;
+pub mod interests;

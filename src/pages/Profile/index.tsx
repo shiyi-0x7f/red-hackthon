@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import ReactECharts from 'echarts-for-react';
 import { studentModelService, type ProfileOverview } from '../../services';
 import WrongAnswerBook from '../../components/learning/WrongAnswerBook';
+import InterestProfile from '../../components/learning/InterestProfile';
 import '../../styles/learning-extras.css';
 
 const STUDENT_ID = 'default-student';
@@ -372,6 +373,9 @@ const ProfilePage: React.FC = () => {
           <ReactECharts option={attemptOption} style={{ height: 260, width: '100%' }} />
         </div>
       </div>
+
+      {/* 兴趣画像 */}
+      <InterestProfile studentId={STUDENT_ID} />
 
       {/* 错题本 */}
       <WrongAnswerBook studentId={STUDENT_ID} />
