@@ -778,37 +778,179 @@
   font-style: italic;
 }
 
-/* 答题输入下方的 LaTeX 实时预览 */
-.answer-preview {
+/* 题目里的填空占位符（（\;\;）） → 视觉空白下划线 */
+.blank-slot {
+  display: inline-block;
+  min-width: 42px;
+  border-bottom: 2px solid var(--color-text-muted);
+  margin: 0 4px;
+  vertical-align: baseline;
+}
+
+/* =========================================================
+   chip 式答题器（SingleInput 重构）
+   - 文本 + 视觉分数 chip 混排
+   - 分数按钮弹 modal，确认后插入真正渲染的分数块
+   ========================================================= */
+.chip-input-box {
+  min-height: 58px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  background: #fff;
+  border: 2px solid var(--color-border);
+  border-radius: 14px;
+  cursor: text;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.chip-input-box:focus-within {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-bg);
+}
+
+.chip-input {
+  flex: 1;
+  min-width: 80px;
+  border: none;
+  outline: none;
+  font-size: 17px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: transparent;
+  padding: 2px 0;
+}
+.chip-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.text-chip {
+  display: inline-block;
+  font-size: 17px;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+  padding: 0 2px;
+}
+
+/* 真·视觉分数 chip */
+.frac-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  vertical-align: middle;
+  padding: 4px 10px;
+  margin: 0 2px;
+  background: linear-gradient(135deg, #FFF1E6, #FFF9EC);
+  border: 1.5px solid #FFC8A1;
+  border-radius: 10px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-primary);
+  box-shadow: 0 2px 6px rgba(255, 140, 66, 0.12);
+}
+.frac-chip-num,
+.frac-chip-den {
+  padding: 1px 4px;
+  font-weight: 600;
+  min-width: 18px;
+  text-align: center;
+}
+.frac-chip-line {
+  display: block;
+  width: 100%;
+  min-width: 22px;
+  height: 2px;
+  background: var(--color-primary);
+  margin: 2px 0;
+  border-radius: 1px;
+}
+
+/* 弹出分数输入 modal */
+.frac-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(45, 42, 38, 0.35);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  margin-top: 8px;
-  background: linear-gradient(135deg, #FFF1E6, #FFF9EC);
-  border: 1px dashed #F5D9B8;
-  border-radius: 12px;
-  animation: answer-preview-fade 0.2s ease;
+  justify-content: center;
 }
-.answer-preview-label {
-  flex-shrink: 0;
-  padding: 3px 10px;
-  background: var(--color-primary);
-  color: #fff;
-  border-radius: 10px;
-  font-size: 11px;
+.frac-modal {
+  width: min(340px, 100%);
+  background: #fff;
+  border-radius: 18px;
+  padding: 24px 28px 20px;
+  box-shadow: 0 20px 50px rgba(255, 140, 66, 0.25);
+}
+.frac-modal-title {
+  text-align: center;
+  font-size: 15px;
   font-weight: 700;
-}
-.answer-preview-content {
-  font-size: 18px;
   color: var(--color-text-primary);
+  margin-bottom: 16px;
 }
-.answer-preview-content .katex {
-  font-size: 1.1em;
+.frac-modal-inputs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+  background: linear-gradient(135deg, #FFF1E6, #FFF9EC);
+  border-radius: 14px;
+  margin-bottom: 16px;
 }
-@keyframes answer-preview-fade {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+.frac-modal-field {
+  width: 100px;
+  padding: 8px 12px;
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--color-text-primary);
+  background: #fff;
+  border: 1.5px solid var(--color-border);
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.frac-modal-field:focus {
+  border-color: var(--color-primary);
+}
+.frac-modal-line {
+  width: 80px;
+  height: 3px;
+  background: var(--color-primary);
+  border-radius: 2px;
+}
+.frac-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.frac-modal-cancel {
+  padding: 8px 18px;
+  background: var(--color-border-light);
+  color: var(--color-text-secondary);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+.frac-modal-ok {
+  padding: 8px 20px;
+  background: var(--color-primary-gradient);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 14px;
+}
+.frac-modal-ok:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* 知识点副标题（Practice 头部） */

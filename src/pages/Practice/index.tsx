@@ -29,8 +29,15 @@ const STUDENT_ID = 'default-student';
 
 /** 将混合文本中的 $...$ 替换为渲染后的 HTML */
 function renderLatexMixed(text: string): string {
+  // 先把填空占位符 （\;\;） / (\;\;) 替换为视觉空白下划线
+  // 注意：这里是纯文本（非 $..$ 内），\; 会被字面输出，所以要手动处理
+  let result = text.replace(
+    /[（(]\s*\\?;\s*\\?;\s*[）)]/g,
+    '<span class="blank-slot">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'
+  );
+
   // 处理 $$...$$ (display math)
-  let result = text.replace(/\$\$([^$]+)\$\$/g, (_match, latex) => {
+  result = result.replace(/\$\$([^$]+)\$\$/g, (_match, latex) => {
     try {
       return katex.renderToString(latex, { displayMode: true, throwOnError: false });
     } catch {
@@ -340,96 +347,225 @@ const MultiBlankInput: React.FC<{
   );
 };
 
-/** 把用户输入转成 LaTeX 预览字符串（a/b → \frac{a}{b}，百分数保留，数字直出） */
-function toLatexPreview(raw: string): string {
-  const s = raw.trim();
-  if (!s) return '';
-  // 多空/多分号拆分（多空题场景）
-  const parts = s.split(/[；;]/).map((p) => p.trim()).filter(Boolean);
-  const renderOne = (text: string): string => {
-    // a/b 或 -a/b
-    const fracMatch = text.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(-?\d+(?:\.\d+)?)$/);
-    if (fracMatch) {
-      return `\\frac{${fracMatch[1]}}{${fracMatch[2]}}`;
-    }
-    // 百分数 "50%"
-    if (/^-?\d+(?:\.\d+)?%$/.test(text)) {
-      return text.replace('%', '\\%');
-    }
-    // 比较运算符单独不渲染 LaTeX（> < =）
-    return text;
-  };
-  return parts.map(renderOne).join(' ;\\; ');
+/** 答题 token — 文本或视觉分数 */
+interface AnswerToken {
+  id: string;
+  type: 'text' | 'frac';
+  text?: string;
+  num?: string;
+  den?: string;
 }
 
-/** 单输入框（计算题等） — 带数学工具栏 + 实时 LaTeX 预览 */
+/** 弹出式分数输入（用于 chip 式答题） */
+const FractionModal: React.FC<{
+  onConfirm: (num: string, den: string) => void;
+  onCancel: () => void;
+}> = ({ onConfirm, onCancel }) => {
+  const [num, setNum] = useState('');
+  const [den, setDen] = useState('');
+  const numRef = useRef<HTMLInputElement>(null);
+  const denRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { numRef.current?.focus(); }, []);
+
+  const handleKey = (e: React.KeyboardEvent, field: 'num' | 'den') => {
+    if (e.key === 'Enter') {
+      if (field === 'num' && num.trim()) denRef.current?.focus();
+      else if (num.trim() && den.trim()) onConfirm(num.trim(), den.trim());
+    } else if (e.key === 'Escape') {
+      onCancel();
+    }
+  };
+
+  return (
+    <div className="frac-modal-backdrop" onClick={onCancel}>
+      <div className="frac-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="frac-modal-title">输入分数</div>
+        <div className="frac-modal-inputs">
+          <input
+            ref={numRef}
+            className="frac-modal-field"
+            placeholder="分子"
+            inputMode="numeric"
+            value={num}
+            onChange={(e) => setNum(e.target.value.replace(/[^\d.-]/g, ''))}
+            onKeyDown={(e) => handleKey(e, 'num')}
+          />
+          <div className="frac-modal-line" />
+          <input
+            ref={denRef}
+            className="frac-modal-field"
+            placeholder="分母"
+            inputMode="numeric"
+            value={den}
+            onChange={(e) => setDen(e.target.value.replace(/[^\d.-]/g, ''))}
+            onKeyDown={(e) => handleKey(e, 'den')}
+          />
+        </div>
+        <div className="frac-modal-actions">
+          <button className="frac-modal-cancel" onClick={onCancel}>取消</button>
+          <button
+            className="frac-modal-ok"
+            disabled={!num.trim() || !den.trim()}
+            onClick={() => num.trim() && den.trim() && onConfirm(num.trim(), den.trim())}
+          >
+            确定
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * 单输入框（chip 式答题器）
+ *
+ * 特点：
+ * - 支持文本 + 视觉分数 chip 混排
+ * - 分数按钮弹出 modal 输入分子分母，确认后插入一个真正渲染的分数 chip
+ * - 提交时序列化：分数 → \frac{a}{b}，文本 → 原文
+ * - Backspace 在空文本态删除最后一个 chip
+ */
 const SingleInput: React.FC<{
   placeholder: string;
   onSubmit: (answer: string) => void;
   disabled: boolean;
   showFraction?: boolean;
 }> = ({ placeholder, onSubmit, disabled, showFraction = true }) => {
-  const [value, setValue] = useState('');
+  const [tokens, setTokens] = useState<AnswerToken[]>([]);
+  const [tail, setTail] = useState('');
+  const [fracOpen, setFracOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+  useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && value.trim()) {
-      onSubmit(value.trim());
+  const serialize = useCallback((): string => {
+    const parts: string[] = tokens.map((t) =>
+      t.type === 'frac' ? `\\frac{${t.num}}{${t.den}}` : (t.text || '')
+    );
+    if (tail.trim()) parts.push(tail.trim());
+    return parts.join('').trim();
+  }, [tokens, tail]);
+
+  const canSubmit = tokens.length > 0 || tail.trim().length > 0;
+
+  const handleSubmit = () => {
+    if (!canSubmit || disabled) return;
+    onSubmit(serialize());
+  };
+
+  const insertSymbol = (sym: string) => {
+    setTail((t) => t + sym);
+    inputRef.current?.focus();
+  };
+
+  const insertFraction = (num: string, den: string) => {
+    // flush 当前 tail 到一个 text token，再追加 frac token
+    setTokens((prev) => {
+      const next: AnswerToken[] = [...prev];
+      if (tail.trim()) {
+        next.push({ id: `t${Date.now()}`, type: 'text', text: tail.trim() });
+      }
+      next.push({ id: `f${Date.now() + 1}`, type: 'frac', num, den });
+      return next;
+    });
+    setTail('');
+    setFracOpen(false);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    } else if (e.key === 'Backspace' && !tail && tokens.length > 0) {
+      e.preventDefault();
+      setTokens((prev) => prev.slice(0, -1));
     }
   };
 
-  const insertText = (text: string) => {
-    setValue((v) => v + text);
-    inputRef.current?.focus();
-  };
-
-  // 实时 LaTeX 预览
-  const latexPreview = toLatexPreview(value);
-  const showPreview = latexPreview && /\\frac|\\%/.test(latexPreview);
-
   return (
     <div className="answer-section">
-      <div className="answer-input-wrapper">
+      <div className="chip-input-box" onClick={() => inputRef.current?.focus()}>
+        {tokens.map((t) => {
+          if (t.type === 'frac') {
+            return (
+              <span key={t.id} className="frac-chip">
+                <span className="frac-chip-num">{t.num}</span>
+                <span className="frac-chip-line" />
+                <span className="frac-chip-den">{t.den}</span>
+              </span>
+            );
+          }
+          return <span key={t.id} className="text-chip">{t.text}</span>;
+        })}
         <input
           ref={inputRef}
           type="text"
-          className="answer-input"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
+          className="chip-input"
+          value={tail}
+          onChange={(e) => setTail(e.target.value)}
           onKeyDown={handleKeyDown}
+          placeholder={tokens.length === 0 ? placeholder : ''}
           disabled={disabled}
         />
       </div>
-      {showPreview && (
-        <div className="answer-preview">
-          <span className="answer-preview-label">预览</span>
-          <span
-            className="answer-preview-content"
-            dangerouslySetInnerHTML={{
-              __html: (() => {
-                try {
-                  return katex.renderToString(latexPreview, { displayMode: false, throwOnError: false });
-                } catch {
-                  return latexPreview;
-                }
-              })(),
-            }}
-          />
+
+      <div className="math-toolbar">
+        <span className="math-toolbar-label">快捷输入：</span>
+        <div className="math-toolbar-buttons">
+          {[
+            { label: '＞', value: '>', title: '大于' },
+            { label: '＜', value: '<', title: '小于' },
+            { label: '＝', value: '=', title: '等于' },
+            { label: '°', value: '°', title: '度' },
+            { label: '℃', value: '℃', title: '摄氏度' },
+            { label: '%', value: '%', title: '百分号' },
+          ].map((s) => (
+            <button
+              key={s.value}
+              className="math-tool-btn"
+              onClick={() => insertSymbol(s.value)}
+              title={s.title}
+              type="button"
+              disabled={disabled}
+            >
+              {s.label}
+            </button>
+          ))}
+          {showFraction && (
+            <button
+              className="math-tool-btn fraction-trigger"
+              onClick={() => setFracOpen(true)}
+              title="输入分数"
+              type="button"
+              disabled={disabled}
+            >
+              <span className="fraction-icon">
+                <span className="fi-num">a</span>
+                <span className="fi-line" />
+                <span className="fi-den">b</span>
+              </span>
+              分数
+            </button>
+          )}
         </div>
-      )}
-      <MathToolbar onInsert={insertText} showFraction={showFraction} />
+      </div>
+
       <button
         className="submit-answer-btn"
-        onClick={() => value.trim() && onSubmit(value.trim())}
-        disabled={!value.trim() || disabled}
+        onClick={handleSubmit}
+        disabled={!canSubmit || disabled}
       >
         <SendOutlined /> 提交答案
       </button>
+
+      {fracOpen && (
+        <FractionModal
+          onConfirm={insertFraction}
+          onCancel={() => setFracOpen(false)}
+        />
+      )}
     </div>
   );
 };
