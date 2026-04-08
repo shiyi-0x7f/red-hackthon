@@ -1,0 +1,355 @@
+/* =========================================================
+   learning-extras.css
+   P0 新增组件样式：ExplanationPanel / JSXBoard / FractionBar /
+   HintPanel / FeedbackOverlay 扩展
+   配色：#7C5CFC 紫 / #54B5FF 蓝（与 Practice 页一致）
+   ========================================================= */
+
+/* ---------- 讲解面板 overlay & panel ---------- */
+.explanation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(12, 10, 30, 0.5);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.explanation-panel {
+  width: min(720px, 100%);
+  max-height: 86vh;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(44, 36, 120, 0.28);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.explanation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  background: linear-gradient(135deg, #7C5CFC 0%, #54B5FF 100%);
+  color: #fff;
+}
+
+.explanation-title {
+  font-size: 18px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.explanation-loading-dot {
+  display: inline-block;
+  margin-left: 6px;
+  animation: ex-dot 1.2s infinite;
+}
+@keyframes ex-dot {
+  0%, 100% { opacity: 0.3; }
+  50%      { opacity: 1;   }
+}
+
+.explanation-close {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+.explanation-close:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.explanation-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+  color: #2c2550;
+  line-height: 1.75;
+  font-size: 15px;
+}
+
+.explanation-text p {
+  margin: 0 0 12px 0;
+}
+.explanation-text strong {
+  color: #7C5CFC;
+  font-weight: 600;
+}
+
+.explanation-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 60px 0;
+  color: #7b77a3;
+}
+
+.explanation-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #e6e3ff;
+  border-top-color: #7C5CFC;
+  border-radius: 50%;
+  animation: ex-spin 0.9s linear infinite;
+}
+@keyframes ex-spin {
+  to { transform: rotate(360deg); }
+}
+
+.explanation-error {
+  background: #fff2f2;
+  color: #c0392b;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  font-size: 14px;
+}
+
+.explanation-visual {
+  margin-top: 20px;
+  padding: 16px;
+  background: #f7f5ff;
+  border-radius: 14px;
+  border: 1px solid #e6e1ff;
+}
+
+.explanation-footer {
+  padding: 14px 24px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.explanation-done-btn {
+  padding: 10px 24px;
+  background: linear-gradient(135deg, #7C5CFC 0%, #54B5FF 100%);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.explanation-done-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(124, 92, 252, 0.3);
+}
+
+/* ---------- JSXGraph 包装 ---------- */
+.jsx-board-wrap {
+  width: 100%;
+}
+.jsx-board-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a3e85;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.jxgbox {
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e6e1ff;
+}
+
+/* ---------- 分数条 ---------- */
+.fraction-bar-wrap {
+  width: 100%;
+}
+.fraction-bar-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a3e85;
+  margin-bottom: 12px;
+  text-align: center;
+}
+.fraction-bar-track {
+  width: 100%;
+  height: 48px;
+  display: flex;
+  background: #ece9ff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.fraction-bar-segment {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  transition: width 0.3s ease;
+}
+.fraction-bar-label {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+/* ---------- 分层提示 ---------- */
+.hint-panel {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: #faf8ff;
+  border-radius: 12px;
+  border: 1px dashed #d5ccff;
+}
+
+.hint-trigger-btn {
+  width: 100%;
+  padding: 10px 14px;
+  background: #fff;
+  color: #7C5CFC;
+  border: 1px solid #c9beff;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.18s;
+}
+.hint-trigger-btn:hover:not(.disabled):not(:disabled) {
+  background: #7C5CFC;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 92, 252, 0.25);
+}
+.hint-trigger-btn.disabled,
+.hint-trigger-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hint-error {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #fff2f2;
+  color: #c0392b;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.hint-item {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border-radius: 10px;
+  border-left: 4px solid #7C5CFC;
+  box-shadow: 0 2px 8px rgba(124, 92, 252, 0.08);
+  overflow: hidden;
+}
+.hint-level-1 { border-left-color: #54B5FF; }
+.hint-level-2 { border-left-color: #7C5CFC; }
+.hint-level-3 { border-left-color: #FF8A65; }
+
+.hint-item-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #7b77a3;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.hint-level-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: #ece9ff;
+  color: #7C5CFC;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.hint-item-text {
+  color: #2c2550;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.hint-usage-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #9892c0;
+  text-align: center;
+  font-style: italic;
+}
+
+/* ---------- FeedbackOverlay 扩展 ---------- */
+.feedback-actions-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.feedback-explain-btn {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  background: #ffffff;
+  color: #7C5CFC;
+  border: 1.5px solid #c9beff;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.18s;
+}
+.feedback-explain-btn:hover {
+  background: #7C5CFC;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(124, 92, 252, 0.3);
+}
+
+.feedback-actions-row .feedback-next-btn {
+  flex: 1;
+  margin-top: 0;
+}
+
+.feedback-next-reasoning {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #f7f5ff;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #4a3e85;
+  line-height: 1.55;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.feedback-ai-tag {
+  flex-shrink: 0;
+  display: inline-block;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, #7C5CFC 0%, #54B5FF 100%);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}

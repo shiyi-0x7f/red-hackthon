@@ -44,6 +44,39 @@ pub fn bkt_update(prior: f64, is_correct: bool, params: &BKTParams) -> f64 {
     posterior + (1.0 - posterior) * params.p_transit
 }
 
+/// 带权 BKT 更新 — 文档要求的 calculate_weight(ctx)
+///
+/// 权重影响：
+/// - hint_count > 0：答对的置信下降（提示越多，作为「独立答对」的证据越弱）
+/// - difficulty 高：答对的转移概率提升（攻克难题学得更快）
+///
+/// 实现方式：
+/// - 答对且用了提示：mastery 增量按 weight 缩放，weight = 1 / (1 + 0.5 * hint_count)
+/// - 难度因子：转移概率 transit *= (1 + 0.1 * (difficulty - 2)).clamp(0.5, 2.0)
+pub fn bkt_update_weighted(
+    prior: f64,
+    is_correct: bool,
+    hint_count: i32,
+    difficulty: i32,
+    params: &BKTParams,
+) -> f64 {
+    let mut p = params.clone();
+
+    let difficulty_factor = (1.0 + 0.1 * (difficulty as f64 - 2.0)).clamp(0.5, 2.0);
+    p.p_transit *= difficulty_factor;
+
+    let raw_posterior = bkt_update(prior, is_correct, &p);
+
+    if is_correct && hint_count > 0 {
+        // 用了提示 → 增量按权重打折
+        let weight = 1.0 / (1.0 + 0.5 * hint_count as f64);
+        let delta = raw_posterior - prior;
+        prior + delta * weight
+    } else {
+        raw_posterior
+    }
+}
+
 /// 计算遗忘风险（艾宾浩斯衰减）
 pub fn forgetting_risk(mastery: f64, hours_since_last: f64) -> f64 {
     // 掌握度越高，半衰期越长

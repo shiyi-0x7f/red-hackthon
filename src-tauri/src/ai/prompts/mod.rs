@@ -70,23 +70,106 @@ JSON 结构如下：
     )
 }
 
-/// 判题 Prompt
+/// 判题 Prompt — 用于 LLM 兜底判题（规则判题不确定时）
 pub fn evaluate_answer(question: &str, correct_answer: &str, student_answer: &str, grade: i32) -> String {
     format!(
-        "请判断学生的答案是否正确，并分析错误原因。\n\
-         \n\
-         题目：{}\n\
-         标准答案：{}\n\
-         学生答案：{}\n\
-         年级：{}年级\n\
-         \n\
-         请以 JSON 格式返回：\n\
-         {{\n\
-           \"is_correct\": true/false,\n\
-           \"error_type\": \"计算错误/概念错误/审题错误/无\",\n\
-           \"error_step\": \"出错的步骤描述\",\n\
-           \"feedback\": \"给学生的鼓励性反馈\"\n\
-         }}",
-        question, correct_answer, student_answer, grade
+        "你是一个{grade}年级的小学数学老师，请判断学生的答案是否正确，并分析错误原因。\n\n\
+         题目：{question}\n\
+         标准答案：{correct_answer}\n\
+         学生答案：{student_answer}\n\n\
+         判断规则：\n\
+         - 数值等价即可视为正确（例如 0.5 = 1/2，180° = 180）\n\
+         - 多空题逐空比对，全对才算对\n\
+         - 应用题学生写出最终答案数值即可，过程错可接受\n\n\
+         错误类型严格使用以下之一：\n\
+         - conceptual（概念错误：对知识点本身理解有误）\n\
+         - procedural（步骤错误：步骤遗漏或顺序错）\n\
+         - careless（粗心错误：抄错数、漏小数点等）\n\
+         - strategic（策略错误：用了不合适的解法）\n\
+         - none（答案正确）\n\n\
+         请只返回 JSON，不要任何额外文字：\n\
+         {{\n  \"is_correct\": true,\n  \"error_type\": \"none\",\n  \"error_step\": \"\",\n  \"feedback\": \"鼓励性的一句话反馈\"\n}}",
+        grade = grade,
+        question = question,
+        correct_answer = correct_answer,
+        student_answer = student_answer
+    )
+}
+
+/// 分层提示 Prompt — 根据 level 生成不同强度的提示
+/// level=1: 引导思考（不给答案）
+/// level=2: 解题方向（给关键步骤）
+/// level=3: 详细步骤（接近答案）
+pub fn layered_hint(question: &str, correct_answer: &str, level: i32, grade: i32) -> String {
+    let style = match level {
+        1 => "【第一层 — 启发式】只用一句话引导学生思考方向，不要给出任何具体步骤或数字答案。提问式语气。",
+        2 => "【第二层 — 半步骤】给出 1~2 个关键解题步骤的提示，但不要算出最终答案。用「我们可以先...再...」的句式。",
+        _ => "【第三层 — 详细步骤】给出完整解题步骤（不超过 4 步），最后一步暗示答案但不直接说出。",
+    };
+    format!(
+        "你是{grade}年级小学数学辅导老师。请为下面的题目生成一段提示。\n\n\
+         题目：{question}\n\
+         标准答案（不要直接告诉学生）：{correct_answer}\n\n\
+         {style}\n\n\
+         要求：\n\
+         - 60 字以内\n\
+         - 语言亲切，像好朋友\n\
+         - 不要使用 emoji\n\
+         - 直接输出提示文本，不要任何前缀（如「提示：」）",
+        grade = grade,
+        question = question,
+        correct_answer = correct_answer,
+        style = style
+    )
+}
+
+/// 讲解 + 可视化 Prompt — 让 LLM 流式输出讲解，并附带 JSXGraph/分数条 spec
+///
+/// 输出格式约定（关键！）：
+/// - 先输出 markdown 讲解正文（4~6 段）
+/// - 最后追加一个 ```visual ... ``` 代码块，里面是 JSON
+pub fn explain_with_visual(question: &str, correct_answer: &str, grade: i32, unit: &str) -> String {
+    format!(
+        "你是{grade}年级小学数学的讲解老师。请用学生能理解的方式讲解下面这道题，并配一个可视化图示帮助理解。\n\n\
+         题目：{question}\n\
+         标准答案：{correct_answer}\n\
+         单元：{unit}\n\n\
+         === 输出格式（严格遵守）===\n\
+         第一部分：用 4~6 段讲解（markdown），每段以「**第N步：xxx**」开头，语言活泼亲切，可以使用 LaTeX（用 $...$ 包裹），不要用 emoji。\n\n\
+         第二部分：在讲解之后，追加一个 ```visual 代码块，内容是一个 JSON 对象，描述一个能帮助理解题目的图示。可选 type：\n\n\
+         1. type=\"jsxgraph\"（用于几何/图形/函数题）：\n\
+            {{\n\
+              \"type\": \"jsxgraph\",\n\
+              \"title\": \"图示标题\",\n\
+              \"boundingBox\": [-5, 5, 5, -5],\n\
+              \"axis\": true,\n\
+              \"elements\": [\n\
+                {{\"kind\": \"point\", \"args\": [[0,0]], \"attrs\": {{\"name\":\"O\",\"color\":\"#7C5CFC\"}}}},\n\
+                {{\"kind\": \"circle\", \"args\": [[0,0], 3], \"attrs\": {{\"strokeColor\":\"#7C5CFC\"}}}},\n\
+                {{\"kind\": \"functiongraph\", \"args\": [\"x*x\", -3, 3], \"attrs\": {{\"strokeColor\":\"#54B5FF\"}}}}\n\
+              ]\n\
+            }}\n\
+            支持的 kind：point / line / segment / circle / polygon / functiongraph / text / arrow / angle\n\
+            args 直接对应 JSXGraph 的 board.create(kind, args, attrs)\n\n\
+         2. type=\"fraction-bar\"（用于分数 / 百分比题）：\n\
+            {{\n\
+              \"type\": \"fraction-bar\",\n\
+              \"title\": \"1/2 + 1/4 = ?\",\n\
+              \"parts\": [\n\
+                {{\"label\":\"1/2\", \"value\":0.5, \"color\":\"#7C5CFC\"}},\n\
+                {{\"label\":\"1/4\", \"value\":0.25, \"color\":\"#54B5FF\"}}\n\
+              ]\n\
+            }}\n\n\
+         3. type=\"none\"（如果题目无需可视化）：\n\
+            {{\"type\": \"none\"}}\n\n\
+         === 重要约束 ===\n\
+         - visual 代码块必须出现在讲解末尾，且只出现一次\n\
+         - JSON 必须语法合法，可被 JSON.parse 直接解析\n\
+         - 图示要简洁直观，元素不超过 6 个\n\
+         - 不要在 visual 中放整个题目的解答，只放概念图示",
+        grade = grade,
+        question = question,
+        correct_answer = correct_answer,
+        unit = unit
     )
 }

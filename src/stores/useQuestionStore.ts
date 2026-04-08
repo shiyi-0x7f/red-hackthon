@@ -17,6 +17,7 @@ export interface AnswerRecord {
   userAnswer: string;
   isCorrect: boolean;
   timeSpentSecs: number;
+  hintsUsed: number;
 }
 
 /** 做题模式 */
@@ -39,6 +40,8 @@ interface QuestionState {
   questionStartTime: number;
   /** 上一题的反馈状态 */
   lastFeedback: { isCorrect: boolean; correctAnswer: string } | null;
+  /** 当前题已使用的提示层数（0~3）*/
+  currentHintsUsed: number;
 
   // Actions
   loadQuiz: (questions: Question[], mode: QuizMode) => void;
@@ -46,6 +49,7 @@ interface QuestionState {
   nextQuestion: () => void;
   clearFeedback: () => void;
   reset: () => void;
+  incrementHints: () => void;
 
   // Computed
   currentQuestion: () => Question | null;
@@ -68,6 +72,7 @@ export const useQuestionStore = create<QuestionState>((set, get) => ({
   finished: false,
   questionStartTime: Date.now(),
   lastFeedback: null,
+  currentHintsUsed: 0,
 
   loadQuiz: (questions, mode) =>
     set({
@@ -79,6 +84,7 @@ export const useQuestionStore = create<QuestionState>((set, get) => ({
       finished: false,
       questionStartTime: Date.now(),
       lastFeedback: null,
+      currentHintsUsed: 0,
     }),
 
   submitAnswer: (userAnswer, isCorrect) => {
@@ -92,6 +98,7 @@ export const useQuestionStore = create<QuestionState>((set, get) => ({
       userAnswer,
       isCorrect,
       timeSpentSecs,
+      hintsUsed: state.currentHintsUsed,
     };
 
     set({
@@ -113,11 +120,14 @@ export const useQuestionStore = create<QuestionState>((set, get) => ({
         currentIndex: nextIdx,
         questionStartTime: Date.now(),
         lastFeedback: null,
+        currentHintsUsed: 0,
       });
     }
   },
 
   clearFeedback: () => set({ lastFeedback: null }),
+
+  incrementHints: () => set((s) => ({ currentHintsUsed: Math.min(3, s.currentHintsUsed + 1) })),
 
   reset: () =>
     set({
@@ -129,6 +139,7 @@ export const useQuestionStore = create<QuestionState>((set, get) => ({
       finished: false,
       questionStartTime: Date.now(),
       lastFeedback: null,
+      currentHintsUsed: 0,
     }),
 
   currentQuestion: () => {

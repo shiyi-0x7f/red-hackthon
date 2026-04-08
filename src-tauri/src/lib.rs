@@ -80,6 +80,9 @@ pub fn run() {
             // 设置
             commands::settings::save_api_key,
             commands::settings::get_settings,
+            // 讲解 + 提示（P0）
+            commands::explain::generate_explanation_stream,
+            commands::explain::get_layered_hint,
         ])
         .run(tauri::generate_context!())
         .expect("运行 Tauri 应用时出错");

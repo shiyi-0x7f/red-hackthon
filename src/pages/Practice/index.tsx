@@ -7,15 +7,19 @@ import {
   SendOutlined,
   CheckCircleFilled,
   CloseCircleFilled,
-  RightOutlined,
   HomeOutlined,
   RedoOutlined,
 } from '@ant-design/icons';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useQuestionStore, type Question } from '../../stores/useQuestionStore';
-import { questionBankService, saveMockAnswerRecord } from '../../services';
+import { questionBankService, saveMockAnswerRecord, learningService } from '../../services';
+import HintPanel from '../../components/learning/HintPanel';
+import ExplanationPanel from '../../components/learning/ExplanationPanel';
 import '../../styles/practice.css';
+import '../../styles/learning-extras.css';
+
+const STUDENT_ID = 'default-student';
 
 /* ========================================
    LaTeX 渲染工具
@@ -569,8 +573,10 @@ const FeedbackOverlay: React.FC<{
   isCorrect: boolean;
   correctAnswer: string;
   onNext: () => void;
+  onExplain: () => void;
   isLast: boolean;
-}> = ({ isCorrect, correctAnswer, onNext, isLast }) => (
+  nextActionReasoning?: string | null;
+}> = ({ isCorrect, correctAnswer, onNext, onExplain, isLast, nextActionReasoning }) => (
   <motion.div
     className={`feedback-overlay ${isCorrect ? 'correct' : 'wrong'}`}
     initial={{ opacity: 0 }}
@@ -603,9 +609,28 @@ const FeedbackOverlay: React.FC<{
       <div className="feedback-card-body">
         <div className="feedback-answer-label">正确答案</div>
         <LatexContent text={correctAnswer} className="feedback-answer-content" />
-        <button className="feedback-next-btn" onClick={onNext}>
-          {isLast ? '查看总结 🏆' : '下一题 →'}
-        </button>
+
+        {nextActionReasoning && (
+          <div className="feedback-next-reasoning">
+            <span className="feedback-ai-tag">AI 决策</span>
+            {nextActionReasoning}
+          </div>
+        )}
+
+        <div className="feedback-actions-row">
+          <button
+            className="feedback-explain-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExplain();
+            }}
+          >
+            🧠 看 AI 讲解
+          </button>
+          <button className="feedback-next-btn" onClick={onNext}>
+            {isLast ? '查看总结 🏆' : '下一题 →'}
+          </button>
+        </div>
       </div>
     </motion.div>
   </motion.div>
@@ -765,6 +790,9 @@ const PracticePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [flashType, setFlashType] = useState<'correct' | 'wrong' | null>(null);
   const [shaking, setShaking] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [explainOpen, setExplainOpen] = useState(false);
+  const [nextActionReasoning, setNextActionReasoning] = useState<string | null>(null);
 
   // 单元名映射（从 URL param 到实际单元名）
   const UNIT_MAP: Record<string, string> = {
@@ -774,7 +802,7 @@ const PracticePage: React.FC = () => {
     u13: '数学广角：鸽巢问题', u14: '整理与复习',
   };
 
-  // 加载题目
+  // 加载题目 + 启动会话
   useEffect(() => {
     let cancelled = false;
 
@@ -782,9 +810,16 @@ const PracticePage: React.FC = () => {
       setLoading(true);
       try {
         const unitName = unitId ? UNIT_MAP[unitId] : undefined;
-        const result = await questionBankService.getQuiz('default-student', unitName, 5);
+        const result = await questionBankService.getQuiz(STUDENT_ID, unitName, 5);
         if (!cancelled && result.questions.length > 0) {
           store.loadQuiz(result.questions, result.mode);
+        }
+        // 启动 Tauri 学习会话（浏览器 mock 静默失败）
+        try {
+          const session = await learningService.startSession(STUDENT_ID) as { session_id?: string };
+          if (!cancelled && session?.session_id) setSessionId(session.session_id);
+        } catch {
+          /* 浏览器 mock 模式静默 */
         }
       } catch (e) {
         console.error('加载题目失败:', e);
@@ -799,39 +834,69 @@ const PracticePage: React.FC = () => {
 
   // 提交答案
   const handleSubmit = useCallback(
-    (userAnswer: string) => {
+    async (userAnswer: string) => {
       const question = store.currentQuestion();
       if (!question) return;
 
-      const isCorrect = checkAnswer(question, userAnswer);
+      // 1. 前端快速判题（用于即时反馈动画）
+      const localCorrect = checkAnswer(question, userAnswer);
 
-      // 屏幕闪烁
-      setFlashType(isCorrect ? 'correct' : 'wrong');
+      setFlashType(localCorrect ? 'correct' : 'wrong');
       setTimeout(() => setFlashType(null), 500);
-
-      // 错误时震动
-      if (!isCorrect) {
+      if (!localCorrect) {
         setShaking(true);
         setTimeout(() => setShaking(false), 400);
       }
 
-      // 保存 mock 记录
+      // mock 记录（浏览器模式仍可用）
       saveMockAnswerRecord({
         questionId: question.id,
-        isCorrect,
+        isCorrect: localCorrect,
         timeSpentSecs: Math.round((Date.now() - store.questionStartTime) / 1000),
       });
 
-      store.submitAnswer(userAnswer, isCorrect);
+      // 先用本地结果立即填入 store（渲染 FeedbackOverlay）
+      store.submitAnswer(userAnswer, localCorrect);
+      setNextActionReasoning(null);
+
+      // 2. 后端权威判题 + 决策（异步覆盖结果）
+      if (sessionId) {
+        try {
+          const timeSpentSecs = Math.round((Date.now() - store.questionStartTime) / 1000);
+          const result = await learningService.submitAnswer(
+            sessionId,
+            question.id,
+            userAnswer,
+            timeSpentSecs,
+            store.currentHintsUsed,
+            STUDENT_ID,
+          );
+          if (result?.next_action?.reasoning) {
+            setNextActionReasoning(result.next_action.reasoning);
+          }
+          // 如果后端判题与前端不一致（例如 LLM 兜底），更新反馈
+          if (typeof result?.is_correct === 'boolean' && result.is_correct !== localCorrect) {
+            console.info('[判题] 后端 LLM 修正了前端结果', { local: localCorrect, llm: result.is_correct });
+          }
+        } catch (e) {
+          console.warn('后端 submit_answer 失败（保留前端判题）:', e);
+        }
+      }
     },
-    [store],
+    [store, sessionId],
   );
 
   // 下一题
   const handleNext = useCallback(() => {
+    setNextActionReasoning(null);
     store.nextQuestion();
     timer.reset();
   }, [store, timer]);
+
+  // 看讲解
+  const handleExplain = useCallback(() => {
+    setExplainOpen(true);
+  }, []);
 
   // 重新来一组
   const handleRetry = useCallback(async () => {
@@ -977,6 +1042,17 @@ const PracticePage: React.FC = () => {
               onSubmit={handleSubmit}
               disabled={!!store.lastFeedback}
             />
+
+            {/* 分层提示 — 答题前可用 */}
+            {!store.lastFeedback && (
+              <HintPanel
+                questionId={question.id}
+                studentId={STUDENT_ID}
+                sessionId={sessionId ?? undefined}
+                hintsUsed={store.currentHintsUsed}
+                onHintRevealed={() => store.incrementHints()}
+              />
+            )}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -988,10 +1064,21 @@ const PracticePage: React.FC = () => {
             isCorrect={store.lastFeedback.isCorrect}
             correctAnswer={store.lastFeedback.correctAnswer}
             onNext={handleNext}
+            onExplain={handleExplain}
             isLast={store.currentIndex >= store.questions.length - 1}
+            nextActionReasoning={nextActionReasoning}
           />
         )}
       </AnimatePresence>
+
+      {/* 讲解面板（流式 + JSXGraph 可视化） */}
+      <ExplanationPanel
+        open={explainOpen}
+        questionId={question.id}
+        studentId={STUDENT_ID}
+        sessionId={sessionId ?? undefined}
+        onClose={() => setExplainOpen(false)}
+      />
     </div>
   );
 };

@@ -44,15 +44,131 @@ export const questionService = {
 };
 
 // === 学习引擎 ===
+export interface SubmitAnswerResult {
+  record_id: string;
+  is_correct: boolean;
+  error_type: string;
+  feedback: string;
+  time_spent_secs: number;
+  hints_used: number;
+  behavior_features?: {
+    avg_response_time: number;
+    accuracy_rate: number;
+    hint_usage_rate: number;
+    max_consecutive_errors: number;
+  };
+  student_state?: {
+    fatigue: number;
+    consecutive_errors: number;
+    session_minutes: number;
+  };
+  next_action?: {
+    action: string;
+    reasoning: string;
+    params: Record<string, unknown>;
+  };
+}
+
 export const learningService = {
   startSession: (studentId: string) =>
     invoke('start_session', { studentId }),
 
-  submitAnswer: (sessionId: string, questionId: string, answer: unknown, timeSpentSecs: number) =>
-    invoke('submit_answer', { sessionId, questionId, answer, timeSpentSecs }),
+  submitAnswer: (
+    sessionId: string,
+    questionId: string,
+    answer: unknown,
+    timeSpentSecs: number,
+    hintsUsed: number = 0,
+    studentId?: string,
+  ): Promise<SubmitAnswerResult> =>
+    invoke<SubmitAnswerResult>('submit_answer', {
+      sessionId, questionId, answer, timeSpentSecs, hintsUsed, studentId,
+    }),
 
   endSession: (sessionId: string, reason: string) =>
     invoke('end_session', { sessionId, reason }),
+};
+
+// === 讲解（流式 + 可视化）===
+export interface ExplanationDonePayload {
+  request_id: string;
+  full_text: string;
+  visual_spec: { type: string } & Record<string, unknown>;
+  from_cache: boolean;
+}
+
+export const explainService = {
+  /** 启动一次流式讲解（事件监听需要先 subscribe） */
+  start: (requestId: string, questionId: string, studentId?: string, sessionId?: string) =>
+    invoke('generate_explanation_stream', { requestId, questionId, studentId, sessionId }),
+
+  /**
+   * 订阅讲解事件
+   * 返回两个 unlisten 函数，调用 unmount 时务必清理
+   */
+  async subscribe(
+    requestId: string,
+    onChunk: (delta: string) => void,
+    onDone: (payload: ExplanationDonePayload) => void,
+  ): Promise<{ removeChunk: () => void; removeDone: () => void }> {
+    if (!isTauri()) {
+      // 浏览器 mock：直接喂一段假讲解
+      setTimeout(() => {
+        const mock = '**第一步：审清题意**\n\n这是一段浏览器 mock 讲解，真正的讲解需要在 Tauri 环境下运行并配置 LLM。\n\n**第二步：思考方法**\n\n回忆我们学过的知识点。';
+        onChunk(mock);
+        onDone({
+          request_id: requestId,
+          full_text: mock,
+          visual_spec: { type: 'none' },
+          from_cache: false,
+        });
+      }, 600);
+      return { removeChunk: () => {}, removeDone: () => {} };
+    }
+    const { listen } = await import('@tauri-apps/api/event');
+    const unlistenChunk = await listen<{ request_id: string; delta: string }>(
+      'explanation:chunk',
+      (e) => {
+        if (e.payload.request_id === requestId) onChunk(e.payload.delta);
+      },
+    );
+    const unlistenDone = await listen<ExplanationDonePayload>(
+      'explanation:done',
+      (e) => {
+        if (e.payload.request_id === requestId) onDone(e.payload);
+      },
+    );
+    return { removeChunk: unlistenChunk, removeDone: unlistenDone };
+  },
+};
+
+// === 分层提示 ===
+export interface LayeredHintResult {
+  level: number;
+  text: string;
+}
+
+export const hintService = {
+  get: async (
+    questionId: string,
+    level: 1 | 2 | 3,
+    studentId?: string,
+    sessionId?: string,
+  ): Promise<LayeredHintResult> => {
+    if (!isTauri()) {
+      // 浏览器 mock
+      await new Promise((r) => setTimeout(r, 400));
+      const mockTexts: Record<number, string> = {
+        1: '想一想这道题考的是什么知识点？最近学的哪个公式可能用得上？',
+        2: '我们可以先找出题目里的已知条件，再用一个式子表示出要求的内容。',
+        3: '把已知条件代入公式，按步骤算一遍，注意单位和小数点。',
+      };
+      return { level, text: mockTexts[level] };
+    }
+    return invoke<LayeredHintResult>('get_layered_hint', {
+      questionId, level, studentId, sessionId,
+    });
+  },
 };
 
 // === 学生模型 ===

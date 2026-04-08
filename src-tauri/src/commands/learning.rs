@@ -1,7 +1,12 @@
 use tauri::State;
 use crate::state::{AppState, StudentRuntimeState};
 use crate::error::{AppError, AppResult};
-use crate::services::student_model;
+use crate::services::{student_model, decision_engine, feature_engine};
+use crate::services::feature_engine::AnswerData;
+use crate::services::decision_engine::MasteryInfo;
+use crate::ai::llm_client::{Message, LLMOptions};
+use crate::ai::prompts;
+use crate::commands::explain::log_event;
 
 /// 开始学习会话
 #[tauri::command]
@@ -48,6 +53,10 @@ pub async fn start_session(
 }
 
 /// 提交答案
+///
+/// 新增字段：
+/// - hints_used: 本题用了几层提示（0~3）
+/// - 返回 next_action：决策引擎的下一步建议（自动出下一题闭环）
 #[tauri::command]
 pub async fn submit_answer(
     session_id: String,
@@ -55,9 +64,11 @@ pub async fn submit_answer(
     answer: serde_json::Value,
     time_spent_secs: i64,
     student_id: Option<String>,
+    hints_used: Option<i32>,
     state: State<'_, AppState>,
 ) -> AppResult<serde_json::Value> {
     tracing::debug!("会话 {} 提交答案: 题目 {}", session_id, question_id);
+    let hints_used = hints_used.unwrap_or(0).clamp(0, 3);
 
     // 从会话获取学生 ID
     let sid = if let Some(s) = student_id {
@@ -73,63 +84,82 @@ pub async fn submit_answer(
 
     // 从题库查找题目信息进行判题
     let question_info = state.question_bank.questions.iter()
-        .find(|q| q.id == question_id);
+        .find(|q| q.id == question_id)
+        .cloned();
 
     let student_answer_str = match &answer {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
     };
 
-    // 简单判题逻辑（对比标准答案）
-    let (is_correct, error_type, feedback) = if let Some(q) = question_info {
-        let correct_answer = q.answer_latex.trim();
-        let student_ans = student_answer_str.trim();
+    // === 两层判题：规则 → LLM 兜底 ===
+    let (is_correct, error_type, feedback) = if let Some(q) = &question_info {
+        let (rule_result, rule_confident) = rule_judge(q, &student_answer_str);
 
-        // 归一化比较：去除空格和 LaTeX 标记
-        let normalize = |s: &str| -> String {
-            s.replace(" ", "")
-                .replace("\\,", "")
-                .replace("$", "")
-                .trim()
-                .to_string()
-        };
-
-        let is_correct = normalize(correct_answer) == normalize(student_ans);
-
-        let error_type = if is_correct {
-            "无".to_string()
-        } else {
-            // 简单错因推断
-            if student_ans.is_empty() {
-                "未作答".to_string()
-            } else if student_ans.len() < correct_answer.len() / 2 {
-                "审题错误".to_string()
+        // 规则不确定（应用题/简答题/文本题）→ 调用 LLM 判题
+        if !rule_confident {
+            let llm_clone = {
+                let guard = state.llm_client.lock().map_err(|e: std::sync::PoisonError<_>| AppError::Internal(e.to_string()))?;
+                guard.clone()
+            };
+            if let Some(llm) = llm_clone {
+                tracing::info!("规则判题不确定，走 LLM 兜底: {}", question_id);
+                let grade = {
+                    let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+                    db.query_row(
+                        "SELECT grade FROM students WHERE id = ?1",
+                        rusqlite::params![sid],
+                        |row| row.get::<_, i32>(0),
+                    ).unwrap_or(6)
+                };
+                let prompt = prompts::evaluate_answer(
+                    &q.content_latex,
+                    &q.answer_latex,
+                    &student_answer_str,
+                    grade,
+                );
+                let messages = vec![Message {
+                    role: "user".to_string(),
+                    content: prompt,
+                }];
+                let opts = LLMOptions {
+                    temperature: Some(0.2),
+                    max_tokens: Some(300),
+                    top_p: Some(0.9),
+                };
+                match llm.complete(&messages, &opts).await {
+                    Ok(raw) => match parse_judge_json(&raw) {
+                        Some((c, et, fb)) => (c, et, fb),
+                        None => {
+                            tracing::warn!("LLM 判题 JSON 解析失败，回落规则判题");
+                            (rule_result.0, rule_result.1, rule_result.2)
+                        }
+                    },
+                    Err(e) => {
+                        tracing::warn!("LLM 判题失败: {}, 回落规则判题", e);
+                        (rule_result.0, rule_result.1, rule_result.2)
+                    }
+                }
             } else {
-                "计算错误".to_string()
+                (rule_result.0, rule_result.1, rule_result.2)
             }
-        };
-
-        let feedback = if is_correct {
-            "做得好！继续加油 🎉".to_string()
         } else {
-            format!("没关系，正确答案是 {}。我们一起看看哪里不对 💪", correct_answer)
-        };
-
-        (is_correct, error_type, feedback)
+            (rule_result.0, rule_result.1, rule_result.2)
+        }
     } else {
-        // 找不到题目信息，默认记录
-        (false, "未知".to_string(), "题目信息未找到".to_string())
+        (false, "unknown".to_string(), "题目信息未找到".to_string())
     };
 
     let record_id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now();
+    let q_difficulty = question_info.as_ref().map(|q| q.difficulty).unwrap_or(2);
 
-    // 写入 answer_records
+    // 写入 answer_records + 更新 session + 加权 BKT
     {
         let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
         db.execute(
             "INSERT INTO answer_records (id, session_id, question_id, student_id, student_answer, is_correct, time_spent_secs, hint_used, error_type, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 record_id,
                 session_id,
@@ -138,6 +168,7 @@ pub async fn submit_answer(
                 student_answer_str,
                 is_correct as i32,
                 time_spent_secs,
+                hints_used,
                 error_type,
                 now.to_rfc3339()
             ],
@@ -149,9 +180,8 @@ pub async fn submit_answer(
             rusqlite::params![is_correct as i32, session_id],
         )?;
 
-        // 更新 knowledge_mastery (BKT)
-        if let Some(q) = question_info {
-            // 查找或创建 mastery 记录（使用 unit 名称作为 knowledge_id）
+        // 更新 knowledge_mastery (加权 BKT)
+        if let Some(q) = &question_info {
             let knowledge_id = format!("kn-{}", q.unit.replace(" ", "_"));
 
             let existing: Option<(f64, i32, i32)> = db.query_row(
@@ -163,7 +193,9 @@ pub async fn submit_answer(
             let bkt_params = student_model::BKTParams::default();
 
             if let Some((old_mastery, attempts, corrects)) = existing {
-                let new_mastery = student_model::bkt_update(old_mastery, is_correct, &bkt_params);
+                let new_mastery = student_model::bkt_update_weighted(
+                    old_mastery, is_correct, hints_used, q_difficulty, &bkt_params,
+                );
                 let forgetting = student_model::forgetting_risk(new_mastery, 0.0);
 
                 db.execute(
@@ -180,7 +212,9 @@ pub async fn submit_answer(
                     ],
                 )?;
             } else {
-                let initial_mastery = student_model::bkt_update(0.3, is_correct, &bkt_params);
+                let initial_mastery = student_model::bkt_update_weighted(
+                    0.3, is_correct, hints_used, q_difficulty, &bkt_params,
+                );
                 db.execute(
                     "INSERT INTO knowledge_mastery (student_id, knowledge_id, mastery_score, attempt_count, correct_count, last_practiced_at, forgetting_risk, bkt_p_know, updated_at)
                      VALUES (?1, ?2, ?3, 1, ?4, ?5, 0.0, ?3, ?5)",
@@ -193,7 +227,6 @@ pub async fn submit_answer(
                     ],
                 )?;
 
-                // 同时确保 knowledge_nodes 表有记录
                 let _ = db.execute(
                     "INSERT OR IGNORE INTO knowledge_nodes (id, name, grade, unit, sort_order) VALUES (?1, ?2, 6, 0, 0)",
                     rusqlite::params![knowledge_id, q.unit],
@@ -203,7 +236,7 @@ pub async fn submit_answer(
     }
 
     // 更新 DashMap 实时状态
-    if let Some(mut runtime) = state.student_states.get_mut(&sid) {
+    let (rt_fatigue, rt_consec_err, rt_session_secs) = if let Some(mut runtime) = state.student_states.get_mut(&sid) {
         runtime.total_questions += 1;
         if is_correct {
             runtime.correct_count += 1;
@@ -211,7 +244,6 @@ pub async fn submit_answer(
         } else {
             runtime.consecutive_errors += 1;
         }
-        // 更新疲劳度（基于时间和错误）
         let elapsed_duration = now.signed_duration_since(runtime.session_start_at);
         let elapsed = elapsed_duration.num_seconds() as f64;
         runtime.session_duration_secs = elapsed as i64;
@@ -221,7 +253,111 @@ pub async fn submit_answer(
             runtime.total_questions,
         );
         runtime.last_activity_at = now;
-    }
+        (runtime.fatigue_level, runtime.consecutive_errors, runtime.session_duration_secs)
+    } else {
+        (0.0, if is_correct { 0 } else { 1 }, time_spent_secs)
+    };
+
+    // === 写 behavior_features 快照 + student_states 快照 + event_log ===
+    let (features, mastery_data) = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+        // 读最近 20 条 answer_records 算特征
+        let mut stmt = db.prepare(
+            "SELECT time_spent_secs, is_correct, hint_used FROM answer_records
+             WHERE student_id = ?1 ORDER BY created_at DESC LIMIT 20"
+        )?;
+        let records: Vec<AnswerData> = stmt
+            .query_map(rusqlite::params![sid], |row| {
+                Ok(AnswerData {
+                    time_spent_secs: row.get(0)?,
+                    is_correct: row.get::<_, i32>(1)? == 1,
+                    hint_used: row.get(2)?,
+                    was_skipped: false,
+                })
+            })?
+            .flatten()
+            .collect();
+        drop(stmt);
+
+        let f = feature_engine::compute_features(&records);
+
+        // 衍生：impulsivity = 响应时间 < 5s 的占比
+        let impulsivity = if records.is_empty() {
+            0.0
+        } else {
+            records.iter().filter(|r| r.time_spent_secs < 5).count() as f64 / records.len() as f64
+        };
+        let hint_dependency = (f.hint_usage_rate * 0.7 + (records.iter().filter(|r| r.hint_used > 0).count() as f64 / (records.len().max(1) as f64)) * 0.3).min(1.0);
+
+        let _ = db.execute(
+            "INSERT INTO behavior_features (student_id, session_id, avg_response_time, response_time_std, accuracy_rate, hint_usage_rate, max_consecutive_errors, impulsivity, hint_dependency, sample_count, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                sid, session_id, f.avg_response_time, f.response_time_std,
+                f.accuracy_rate, f.hint_usage_rate, f.max_consecutive_errors,
+                impulsivity, hint_dependency, records.len() as i32, now.to_rfc3339()
+            ],
+        );
+
+        // student_states 快照
+        let attention = (1.0 - rt_fatigue * 0.6 - impulsivity * 0.3).clamp(0.0, 1.0);
+        let frustration = (rt_consec_err as f64 / 5.0).min(1.0);
+        let cognitive_load = ((1.0 - f.accuracy_rate) * 0.5 + rt_fatigue * 0.5).min(1.0);
+        let _ = db.execute(
+            "INSERT INTO student_states (student_id, session_id, fatigue_level, attention_level, frustration, cognitive_load, consecutive_errors, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            rusqlite::params![
+                sid, session_id, rt_fatigue, attention, frustration, cognitive_load, rt_consec_err, now.to_rfc3339()
+            ],
+        );
+
+        // 读 mastery 用于决策
+        let mut mastery: Vec<MasteryInfo> = Vec::new();
+        if let Ok(mut stmt2) = db.prepare(
+            "SELECT km.knowledge_id, COALESCE(kn.name, km.knowledge_id), km.mastery_score, km.forgetting_risk
+             FROM knowledge_mastery km
+             LEFT JOIN knowledge_nodes kn ON km.knowledge_id = kn.id
+             WHERE km.student_id = ?1"
+        ) {
+            if let Ok(rows) = stmt2.query_map(rusqlite::params![sid], |row| {
+                Ok(MasteryInfo {
+                    knowledge_id: row.get(0)?,
+                    name: row.get(1)?,
+                    mastery_score: row.get(2)?,
+                    forgetting_risk: row.get(3)?,
+                    last_practiced_hours_ago: 0.0,
+                })
+            }) {
+                for r in rows.flatten() { mastery.push(r); }
+            }
+        }
+
+        (f, mastery)
+    };
+
+    // event_log
+    log_event(&state, Some(&sid), Some(&session_id), "answer_submit", serde_json::json!({
+        "question_id": question_id,
+        "is_correct": is_correct,
+        "error_type": error_type,
+        "hints_used": hints_used,
+        "time_spent_secs": time_spent_secs,
+    }));
+
+    // === decide_next：自动给出下一步建议（前端可据此自动出下一题） ===
+    let next_action = decision_engine::decide(
+        rt_fatigue,
+        (rt_consec_err as f64 / 5.0).min(1.0),
+        rt_consec_err,
+        rt_session_secs / 60,
+        30,
+        &mastery_data,
+    );
+    log_event(&state, Some(&sid), Some(&session_id), "next_action", serde_json::json!({
+        "action": next_action.action,
+        "reasoning": next_action.reasoning,
+    }));
 
     Ok(serde_json::json!({
         "record_id": record_id,
@@ -229,7 +365,99 @@ pub async fn submit_answer(
         "error_type": error_type,
         "feedback": feedback,
         "time_spent_secs": time_spent_secs,
+        "hints_used": hints_used,
+        "behavior_features": {
+            "avg_response_time": features.avg_response_time,
+            "accuracy_rate": features.accuracy_rate,
+            "hint_usage_rate": features.hint_usage_rate,
+            "max_consecutive_errors": features.max_consecutive_errors,
+        },
+        "student_state": {
+            "fatigue": rt_fatigue,
+            "consecutive_errors": rt_consec_err,
+            "session_minutes": rt_session_secs / 60,
+        },
+        "next_action": {
+            "action": next_action.action,
+            "reasoning": next_action.reasoning,
+            "params": next_action.params,
+        },
     }))
+}
+
+// =============================================
+// 判题工具
+// =============================================
+
+/// 规则判题
+///
+/// 返回 ((is_correct, error_type, feedback), confident)
+/// confident=false 时，调用方应该走 LLM 兜底
+fn rule_judge(q: &crate::services::question_bank::BaseQuestion, student_answer: &str) -> ((bool, String, String), bool) {
+    let qtype = q.question_type.as_str();
+
+    // 应用题/简答题/综合应用 → 规则判题不可靠，交给 LLM
+    let needs_llm = matches!(qtype, "应用题" | "简答题" | "综合应用");
+
+    let correct_answer = q.answer_latex.trim();
+    let student_ans = student_answer.trim();
+
+    let normalize = |s: &str| -> String {
+        s.replace(' ', "")
+            .replace("\\,", "")
+            .replace('$', "")
+            .trim()
+            .to_string()
+    };
+
+    let n_correct = normalize(correct_answer);
+    let n_student = normalize(student_ans);
+
+    let is_correct = n_correct == n_student
+        || (!n_correct.is_empty() && (n_correct.contains(&n_student) || n_student.contains(&n_correct)) && n_student.len() >= 1);
+
+    let error_type = if is_correct {
+        "none".to_string()
+    } else if student_ans.is_empty() {
+        "careless".to_string()
+    } else if n_student.len() < n_correct.len() / 2 {
+        "conceptual".to_string()
+    } else {
+        "procedural".to_string()
+    };
+
+    let feedback = if is_correct {
+        "做得好！继续加油".to_string()
+    } else {
+        format!("没关系，正确答案是 {}。我们一起看看哪里不对", correct_answer)
+    };
+
+    ((is_correct, error_type, feedback), !needs_llm)
+}
+
+/// 解析 LLM 判题的 JSON 输出
+fn parse_judge_json(raw: &str) -> Option<(bool, String, String)> {
+    let try_parse = |s: &str| -> Option<serde_json::Value> { serde_json::from_str(s.trim()).ok() };
+
+    let val = try_parse(raw)
+        .or_else(|| {
+            // ```json ... ```
+            raw.find("```json").and_then(|s| {
+                let after = &raw[s + 7..];
+                after.find("```").and_then(|e| try_parse(&after[..e]))
+            })
+        })
+        .or_else(|| {
+            // 花括号
+            let s = raw.find('{')?;
+            let e = raw.rfind('}')?;
+            try_parse(&raw[s..=e])
+        })?;
+
+    let is_correct = val.get("is_correct")?.as_bool()?;
+    let error_type = val.get("error_type").and_then(|v| v.as_str()).unwrap_or("none").to_string();
+    let feedback = val.get("feedback").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    Some((is_correct, error_type, feedback))
 }
 
 /// 结束学习会话
