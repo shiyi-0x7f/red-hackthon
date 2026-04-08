@@ -587,6 +587,7 @@ const FeedbackOverlay: React.FC<{
   nextActionType?: string | null;
   aiBadge?: string | null;
   aiErrorType?: string | null;
+  autopilotLoading?: boolean;
 }> = ({
   isCorrect,
   correctAnswer,
@@ -597,6 +598,7 @@ const FeedbackOverlay: React.FC<{
   nextActionType,
   aiBadge,
   aiErrorType,
+  autopilotLoading = false,
 }) => {
   // 决策引擎要求强制结束 → 按钮文案变化
   const isForceEnd = nextActionType === 'force_end';
@@ -672,8 +674,8 @@ const FeedbackOverlay: React.FC<{
             >
               🧠 看 AI 讲解
             </button>
-            <button className="feedback-next-btn" onClick={onNext}>
-              {nextLabel}
+            <button className="feedback-next-btn" onClick={onNext} disabled={autopilotLoading}>
+              {autopilotLoading ? '🤖 AI 出题中...' : nextLabel}
             </button>
           </div>
         </div>
@@ -910,6 +912,7 @@ const PracticePage: React.FC = () => {
   const [nextActionType, setNextActionType] = useState<string | null>(null);
   const [aiBadge, setAiBadge] = useState<string | null>(null);
   const [aiErrorType, setAiErrorType] = useState<string | null>(null);
+  const [autopilotEnabled, setAutopilotEnabled] = useState(true);
 
   // 单元名映射（从 URL param 到实际单元名）
   const UNIT_MAP: Record<string, string> = {
@@ -1023,27 +1026,60 @@ const PracticePage: React.FC = () => {
     [store, sessionId],
   );
 
-  // 下一题（根据 next_action 闭环）
-  const handleNext = useCallback(() => {
+  // 下一题（根据 next_action 闭环 + autopilot 无限学习流）
+  const [autopilotLoading, setAutopilotLoading] = useState(false);
+  const handleNext = useCallback(async () => {
     setNextActionReasoning(null);
     setAiBadge(null);
     setAiErrorType(null);
-    // 决策引擎要求强制结束 → 直接进总结
-    if (nextActionType === 'force_end') {
-      console.info('[决策] force_end 触发，提前进入总结页');
-      // 结束 Tauri 会话
+
+    // 决策引擎要求强制结束 / 建议休息 → 直接进总结
+    if (nextActionType === 'force_end' || nextActionType === 'suggest_break') {
+      console.info('[决策] 触发提前结束:', nextActionType);
       if (sessionId) {
-        learningService.endSession(sessionId, 'force_end').catch(() => {});
+        learningService.endSession(sessionId, nextActionType).catch(() => {});
       }
-      // 跳到总结
       useQuestionStore.setState({ finished: true, lastFeedback: null });
       setNextActionType(null);
       return;
     }
+
+    const isLast = store.currentIndex >= store.questions.length - 1;
+
+    // === Autopilot ===
+    // 当前是最后一题 + autopilot 模式 + Tauri 环境 + 决策建议继续 → 自动拉新题
+    const shouldAutopilot = isLast && autopilotEnabled && sessionId &&
+      (nextActionType === 'continue_practice' || nextActionType === 'introduce_new' || nextActionType === 'schedule_review' || nextActionType === null);
+
+    if (shouldAutopilot) {
+      setAutopilotLoading(true);
+      try {
+        const currentQ = store.currentQuestion();
+        const targetUnit = currentQ?.unit ?? '分数乘法';
+        const targetDifficulty = currentQ?.difficulty ?? 2;
+        console.info('[autopilot] 拉取下一题:', { unit: targetUnit, difficulty: targetDifficulty, action: nextActionType });
+        const aiQ = await questionService.generateAiQuestion(STUDENT_ID, targetUnit, targetDifficulty);
+        store.insertNextQuestion({
+          id: aiQ.id,
+          unit: aiQ.unit,
+          semester: aiQ.semester,
+          question_type: aiQ.question_type,
+          content_latex: aiQ.content_latex,
+          answer_latex: aiQ.answer_latex,
+          difficulty: aiQ.difficulty,
+        });
+        console.info('[autopilot] 新题已插入:', aiQ.id);
+      } catch (e) {
+        console.warn('[autopilot] 拉取失败，进入总结:', e);
+      } finally {
+        setAutopilotLoading(false);
+      }
+    }
+
     setNextActionType(null);
     store.nextQuestion();
     timer.reset();
-  }, [store, timer, nextActionType, sessionId]);
+  }, [store, timer, nextActionType, sessionId, autopilotEnabled]);
 
   // 看讲解
   const handleExplain = useCallback(() => {
@@ -1167,6 +1203,13 @@ const PracticePage: React.FC = () => {
         </div>
 
         <div className="practice-header-right">
+          <button
+            className={`autopilot-toggle ${autopilotEnabled ? 'on' : 'off'}`}
+            onClick={() => setAutopilotEnabled((v) => !v)}
+            title="开启后，答完最后一题会按 AI 决策自动出新题"
+          >
+            {autopilotEnabled ? '🤖 自动学习中' : '🤖 自动学习关'}
+          </button>
           <div className="practice-timer">
             <ClockCircleOutlined className="timer-icon" />
             <span>{timer.formatted}</span>
@@ -1261,6 +1304,7 @@ const PracticePage: React.FC = () => {
             nextActionType={nextActionType}
             aiBadge={aiBadge}
             aiErrorType={aiErrorType}
+            autopilotLoading={autopilotLoading}
           />
         )}
       </AnimatePresence>
