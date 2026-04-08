@@ -363,20 +363,35 @@ const ProfilePage: React.FC = () => {
           </>
         )}
 
-        {/* Tab 2: 知识地图 */}
+        {/* Tab 2: 知识地图 — 2x2 自适应网格 */}
         {activeTab === 'knowledge' && (
           <>
-            <div className="profile-charts-row">
-              <div className="card profile-radar-card">
-                <h2 className="card-title">📊 知识掌握雷达</h2>
-                <ReactECharts option={radarOption} style={{ height: 320, width: '100%' }} />
+            {forgettingAlerts.length > 0 && (
+              <div className="forget-banner">
+                <span className="forget-banner-icon">⏰</span>
+                <span className="forget-banner-label">遗忘预警</span>
+                <div className="forget-banner-tags">
+                  {forgettingAlerts.map((item) => (
+                    <span key={item.knowledge_id} className="forget-banner-tag">
+                      {item.name}
+                      <span className="forget-banner-risk">{(item.forgetting_risk * 100).toFixed(0)}%</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="knowledge-grid">
+              <div className="card knowledge-cell">
+                <h2 className="card-title card-title-sm">📊 知识掌握雷达</h2>
+                <ReactECharts option={radarOption} style={{ height: 180, width: '100%' }} />
               </div>
 
-              <div className="card profile-weak-card">
-                <h2 className="card-title">📉 需要加强的知识点</h2>
-                <div className="weak-list">
-                  {weakPoints.map((item, idx) => (
-                    <div key={item.knowledge_id} className="weak-item">
+              <div className="card knowledge-cell">
+                <h2 className="card-title card-title-sm">📉 需要加强的知识点</h2>
+                <div className="weak-list weak-list-compact">
+                  {weakPoints.slice(0, 5).map((item, idx) => (
+                    <div key={item.knowledge_id} className="weak-item weak-item-compact">
                       <span className="weak-rank">{idx + 1}</span>
                       <span className="weak-name">{item.name}</span>
                       <div className="weak-bar-wrapper">
@@ -395,33 +410,17 @@ const ProfilePage: React.FC = () => {
                   ))}
                 </div>
               </div>
-            </div>
 
-            <div className="profile-charts-row">
-              <div className="card profile-trend-card">
-                <h2 className="card-title">📈 掌握度趋势（按熟悉度排序）</h2>
-                <ReactECharts option={trendOption} style={{ height: 260, width: '100%' }} />
+              <div className="card knowledge-cell">
+                <h2 className="card-title card-title-sm">📈 掌握度趋势</h2>
+                <ReactECharts option={trendOption} style={{ height: 180, width: '100%' }} />
               </div>
-              <div className="card profile-attempt-card">
-                <h2 className="card-title">📊 各知识点练习量</h2>
-                <ReactECharts option={attemptOption} style={{ height: 260, width: '100%' }} />
+
+              <div className="card knowledge-cell">
+                <h2 className="card-title card-title-sm">📊 各知识点练习量</h2>
+                <ReactECharts option={attemptOption} style={{ height: 180, width: '100%' }} />
               </div>
             </div>
-
-            {forgettingAlerts.length > 0 && (
-              <div className="card profile-forget-card">
-                <h2 className="card-title">⏰ 遗忘预警</h2>
-                <p className="section-desc">以下知识点可能快要忘记了，建议及时复习</p>
-                <div className="forget-tags">
-                  {forgettingAlerts.map((item) => (
-                    <div key={item.knowledge_id} className="forget-tag">
-                      <span className="forget-tag-name">{item.name}</span>
-                      <span className="forget-tag-risk">风险 {(item.forgetting_risk * 100).toFixed(0)}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </>
         )}
 

@@ -1303,6 +1303,98 @@
   min-height: 300px;
 }
 
+/* =========================================================
+   知识地图 2x2 自适应网格
+   ========================================================= */
+.knowledge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.knowledge-cell {
+  padding: 12px 14px !important;
+  min-width: 0;
+}
+
+.knowledge-cell .card-title-sm {
+  font-size: 13px !important;
+  margin: 0 0 8px 0 !important;
+  font-weight: 600;
+}
+
+.weak-list-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 170px;
+  overflow-y: auto;
+}
+
+.weak-item-compact {
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.weak-item-compact .weak-rank {
+  min-width: 22px !important;
+  height: 22px !important;
+  font-size: 12px !important;
+}
+.weak-item-compact .weak-name {
+  font-size: 13px !important;
+}
+.weak-item-compact .weak-score {
+  font-size: 12px !important;
+}
+.weak-item-compact .weak-bar-wrapper {
+  height: 6px !important;
+}
+
+/* 遗忘预警小横幅 */
+.forget-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, #fff4e6, #fff7e0);
+  border: 1px solid #ffd58f;
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+.forget-banner-icon {
+  font-size: 18px;
+}
+.forget-banner-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #8c5a00;
+  flex-shrink: 0;
+}
+.forget-banner-tags {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.forget-banner-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: #fff;
+  border: 1px solid #ffd58f;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #6c5400;
+}
+.forget-banner-risk {
+  color: #c0392b;
+  font-weight: 700;
+  font-size: 11px;
+}
+
 @media (max-width: 640px) {
   .profile-tab {
     min-width: 90px;
