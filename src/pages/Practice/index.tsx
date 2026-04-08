@@ -1211,11 +1211,13 @@ const PracticePage: React.FC = () => {
         setTimeout(() => setShaking(false), 400);
       }
 
-      // mock 记录（浏览器模式仍可用）
+      // mock 记录（浏览器模式仍可用，含知识点用于 Learn 页解锁）
       saveMockAnswerRecord({
         questionId: question.id,
         isCorrect: localCorrect,
         timeSpentSecs: Math.round((Date.now() - store.questionStartTime) / 1000),
+        knowledgePoint: question.knowledge_point ?? knowledgePoint ?? undefined,
+        unit: question.unit,
       });
 
       // 先用本地结果立即填入 store（渲染 FeedbackOverlay）

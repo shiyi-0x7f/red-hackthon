@@ -63,92 +63,121 @@ const UNIT_CFGS = [
 ];
 
 interface Progress {
-  /** 前 N 个节点视为 completed */
-  completedTotal: number;
+  /** 每个知识点名 → 正确答题数 */
+  kpCorrectCount: Map<string, number>;
+  /** 全局正确答题数（用于没 KP 标注的旧单元兜底）*/
+  totalCorrect: number;
   /** 数据来源：后端 DB 或浏览器 mock */
   source: 'backend' | 'mock';
 }
 
+/** 解锁某个知识点所需的同 KP 正确答题数阈值 */
+const KP_MASTERY_THRESHOLD = 2;
+
 /**
- * 计算当前进度：
- * 1. 优先尝试从 Tauri 后端 getProfileOverview 读真实答题总数
- * 2. 失败（浏览器模式 / 后端未启动）→ fallback 到 localStorage mock
+ * 计算当前进度（基于每个知识点的正确答题数）
  *
- * 映射规则：每 2 条真实答题记录 ≈ 完成一个知识点节点
- * 清除学习数据后 → 进度归 0，所有节点默认 available（可自由探索）
+ * 规则：
+ * - 前 3 单元（有 KP 标注）：每 KP 需要 KP_MASTERY_THRESHOLD 条正确答题才算完成
+ * - 其他单元：兜底用总答题数 / 2 作为粗粒度进度
  */
 async function computeProgress(): Promise<Progress> {
   try {
-    const overview = await studentModelService.getProfileOverview(STUDENT_ID);
-    if (overview) {
-      const n = overview.total_questions || 0;
-      return { completedTotal: Math.min(Math.floor(n / 2), 60), source: 'backend' };
+    const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
+    if (Array.isArray(records)) {
+      const kpMap = new Map<string, number>();
+      let totalCorrect = 0;
+      for (const r of records) {
+        if (!r.isCorrect) continue;
+        totalCorrect++;
+        if (r.knowledgePoint) {
+          kpMap.set(r.knowledgePoint, (kpMap.get(r.knowledgePoint) || 0) + 1);
+        }
+      }
+      return { kpCorrectCount: kpMap, totalCorrect, source: 'mock' };
     }
   } catch (e) {
-    console.warn('[Learn] 后端进度获取失败，fallback 到 localStorage:', e);
+    console.warn('[Learn] 读取 localStorage 失败:', e);
   }
 
+  // Tauri 模式兜底（后端暂未按 KP 粒度追踪）
   try {
-    const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
-    const n = Array.isArray(records) ? records.length : 0;
-    return { completedTotal: Math.min(Math.floor(n / 2), 40), source: 'mock' };
-  } catch {
-    return { completedTotal: 0, source: 'mock' };
+    const overview = await studentModelService.getProfileOverview(STUDENT_ID);
+    if (overview) {
+      return {
+        kpCorrectCount: new Map(),
+        totalCorrect: overview.correct_count || 0,
+        source: 'backend',
+      };
+    }
+  } catch (e) {
+    console.warn('[Learn] 后端进度获取失败:', e);
   }
+
+  return { kpCorrectCount: new Map(), totalCorrect: 0, source: 'mock' };
 }
+
+/** 前 3 单元使用每 KP 精确追踪；其他单元用粗粒度兜底 */
+const TRACKED_UNIT_NAMES = new Set(['分数乘法', '位置与方向', '分数除法']);
 
 /**
  * 从知识图谱 JSON 构造单元：每个知识点 = 一个节点
  *
- * 规则（per-unit 独立判断）：
- *   - **每个单元的第一个知识点永远可以探索**（available / current）
- *   - 后续知识点需要前置完成才能解锁（locked → available）
- *   - 全局 completedTotal 按单元顺序依次填充
+ * 前 3 单元（有 KP 追踪）：
+ *   - 每个知识点 i 的 status 由 kpCorrectCount[kp[i]] 与阈值判定：
+ *     * ≥ KP_MASTERY_THRESHOLD 且前置也达标 → completed
+ *     * 前置已达标或 i===0 → available（首个未完成 → current）
+ *     * 其他 → locked
+ *   - 每个单元独立判断，单元 A 完成情况不影响单元 B 的第一个节点
  *
- * 状态分配：
- *   - i < completedInUnit → completed（按位置给 1~3 星）
- *   - i === completedInUnit → 本单元"下一个要学"的节点：
- *     * 如果是全局第一个未完成节点 → current（加特殊标记）
- *     * 否则 → available
- *   - i > completedInUnit → locked
+ * 后续单元（兜底）：
+ *   - 第一个节点永远 available
+ *   - 其余锁定（待数据规整完成后升级）
  */
 function buildUnitsFromKnowledgeMap(km: RawKnowledgeMap, progress: Progress): MapUnit[] {
   const units: MapUnit[] = [];
-  let remaining = progress.completedTotal;
   let currentMarked = false;
-
   let unitIdx = 0;
+
   for (const semesterName of ['上册', '下册']) {
     const semUnits = km.学期[semesterName] || [];
     for (const u of semUnits) {
       const cfg = UNIT_CFGS[unitIdx % UNIT_CFGS.length];
-      const unitSize = u.知识点.length;
-      const completedInUnit = Math.min(unitSize, remaining);
-      remaining -= completedInUnit;
+      const isTracked = TRACKED_UNIT_NAMES.has(u.单元);
 
+      // 精确模式：严格顺序遍历，遇到第一个未达标的 KP 就停止，后续全部锁定
+      // 这样即使用户绕过前置答了后面的题，后面的也不会被错误解锁
+      let stillAhead = true;
       const nodes: MapNode[] = u.知识点.map((kp, i) => {
         let status: MapNode['status'] = 'locked';
         let stars = 0, attempts = 0;
 
-        if (i < completedInUnit) {
-          // 已完成
-          status = 'completed';
-          const relative = i / Math.max(1, completedInUnit);
-          stars = relative < 0.4 ? 3 : relative < 0.75 ? 2 : 1;
-          attempts = 2 + Math.floor(Math.random() * 6);
-        } else if (i === completedInUnit) {
-          // 本单元的"下一个要学" — 永远可访问
-          if (completedInUnit < unitSize) {
+        if (isTracked) {
+          const correctCount = progress.kpCorrectCount.get(kp) || 0;
+          if (stillAhead && correctCount >= KP_MASTERY_THRESHOLD) {
+            // 前置都完成 + 本身达标 → completed
+            status = 'completed';
+            stars = correctCount >= KP_MASTERY_THRESHOLD * 3 ? 3
+                  : correctCount >= KP_MASTERY_THRESHOLD * 2 ? 2 : 1;
+            attempts = correctCount;
+          } else if (stillAhead) {
+            // 碰到本单元第一个未达标 KP → 可探索
             if (!currentMarked) {
               status = 'current';
               currentMarked = true;
             } else {
               status = 'available';
             }
+            attempts = correctCount;
+            stillAhead = false; // 本 KP 之后的全部锁定
+          } else {
+            status = 'locked';
           }
         } else {
-          // 没有前置知识点 — 锁住
-          status = 'locked';
+          // 兜底模式：第一个节点 available，其余 locked
+          if (i === 0) {
+            status = 'available';
+          }
         }
 
         return {

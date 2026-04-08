@@ -773,21 +773,27 @@ async function loadQuestionBankFromJson(): Promise<Question[]> {
           else if (['综合应用'].includes(qtype)) difficulty = 4;
           if (content.length > 120) difficulty = Math.min(difficulty + 1, 5);
 
+          // 优先使用 JSON 提供的稳定 id，退回自动编号
+          const stableId = typeof q['id'] === 'string' && q['id'] ? q['id'] : `base-${String(idx).padStart(4, '0')}`;
+          const kp = typeof q['知识点'] === 'string' ? q['知识点'] : undefined;
+
           questions.push({
-            id: `base-${String(idx).padStart(4, '0')}`,
+            id: stableId,
             unit: unit['单元'] || '',
             semester: semesterName,
             question_type: qtype,
             content_latex: content,
             answer_latex: q['答案_latex'] || '',
             difficulty,
+            knowledge_point: kp,
           });
         }
       }
     }
 
     _cachedQuestionBank = questions;
-    console.log(`[Mock] 基题库加载完成: ${questions.length} 道题`);
+    const withKp = questions.filter((q) => q.knowledge_point).length;
+    console.log(`[Mock] 基题库加载完成: ${questions.length} 道题（其中 ${withKp} 道已标注知识点）`);
     return questions;
   } catch (e) {
     console.error('[Mock] 加载基题库失败:', e);
@@ -805,11 +811,13 @@ function getMockAnswerCount(): number {
   }
 }
 
-/** 保存 mock 答题记录 */
+/** 保存 mock 答题记录（含知识点，用于 Learn 页按 KP 解锁）*/
 export function saveMockAnswerRecord(record: {
   questionId: string;
   isCorrect: boolean;
   timeSpentSecs: number;
+  knowledgePoint?: string;
+  unit?: string;
 }) {
   try {
     const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');

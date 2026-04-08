@@ -9,6 +9,8 @@ export interface Question {
   content_latex: string;
   answer_latex: string;
   difficulty: number;
+  /** 知识点名称（前 3 单元已标注；后续单元可能为 undefined） */
+  knowledge_point?: string;
 }
 
 /** 答题记录 */
