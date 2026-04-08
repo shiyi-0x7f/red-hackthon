@@ -50,6 +50,8 @@ interface QuestionState {
   clearFeedback: () => void;
   reset: () => void;
   incrementHints: () => void;
+  /** 后端 LLM 判题结果覆盖前端规则判题 */
+  correctLastFeedback: (isCorrect: boolean) => void;
 
   // Computed
   currentQuestion: () => Question | null;
@@ -128,6 +130,17 @@ export const useQuestionStore = create<QuestionState>((set, get) => ({
   clearFeedback: () => set({ lastFeedback: null }),
 
   incrementHints: () => set((s) => ({ currentHintsUsed: Math.min(3, s.currentHintsUsed + 1) })),
+
+  correctLastFeedback: (isCorrect) => set((state) => {
+    if (!state.lastFeedback || state.answers.length === 0) return {};
+    const newAnswers = [...state.answers];
+    const lastIdx = newAnswers.length - 1;
+    newAnswers[lastIdx] = { ...newAnswers[lastIdx], isCorrect };
+    return {
+      answers: newAnswers,
+      lastFeedback: { ...state.lastFeedback, isCorrect },
+    };
+  }),
 
   reset: () =>
     set({

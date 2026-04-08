@@ -353,3 +353,49 @@
   font-weight: 700;
   letter-spacing: 0.3px;
 }
+
+/* AI 判题徽章（确认 / 修正） */
+.feedback-ai-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.feedback-ai-badge.confirmed {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+}
+.feedback-ai-badge.corrected {
+  background: #FFE082;
+  color: #5d4400;
+  box-shadow: 0 2px 6px rgba(255, 200, 0, 0.35);
+}
+
+/* 错因分类条 */
+.feedback-error-type {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: #fff4e6;
+  color: #8c5a00;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* 决策推荐特殊态 */
+.feedback-next-reasoning.force-end {
+  background: #ffe5e5;
+  color: #8c1a1a;
+  border-left: 3px solid #ff6b6b;
+}
+.feedback-next-reasoning.suggest-break {
+  background: #fff7e0;
+  color: #6c5400;
+  border-left: 3px solid #ffb74d;
+}

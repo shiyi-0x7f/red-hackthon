@@ -569,6 +569,13 @@ function checkAnswer(question: Question, userAnswer: string): boolean {
    反馈弹窗
    ======================================== */
 
+const ERROR_TYPE_LABEL: Record<string, string> = {
+  conceptual: '概念错误',
+  procedural: '步骤错误',
+  careless: '粗心错误',
+  strategic: '策略错误',
+};
+
 const FeedbackOverlay: React.FC<{
   isCorrect: boolean;
   correctAnswer: string;
@@ -576,65 +583,103 @@ const FeedbackOverlay: React.FC<{
   onExplain: () => void;
   isLast: boolean;
   nextActionReasoning?: string | null;
-}> = ({ isCorrect, correctAnswer, onNext, onExplain, isLast, nextActionReasoning }) => (
-  <motion.div
-    className={`feedback-overlay ${isCorrect ? 'correct' : 'wrong'}`}
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    onClick={onNext}
-  >
+  nextActionType?: string | null;
+  aiBadge?: string | null;
+  aiErrorType?: string | null;
+}> = ({
+  isCorrect,
+  correctAnswer,
+  onNext,
+  onExplain,
+  isLast,
+  nextActionReasoning,
+  nextActionType,
+  aiBadge,
+  aiErrorType,
+}) => {
+  // 决策引擎要求强制结束 → 按钮文案变化
+  const isForceEnd = nextActionType === 'force_end';
+  const isSuggestBreak = nextActionType === 'suggest_break';
+  const nextLabel = isForceEnd
+    ? '立即查看总结 🏁'
+    : isSuggestBreak
+      ? '我懂了，去休息一会 ☕'
+      : isLast
+        ? '查看总结 🏆'
+        : '下一题 →';
+
+  return (
     <motion.div
-      className="feedback-card"
-      initial={{ opacity: 0, y: 50, scale: 0.9 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 30, scale: 0.95 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-      onClick={(e) => e.stopPropagation()}
+      className={`feedback-overlay ${isCorrect ? 'correct' : 'wrong'}`}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onNext}
     >
-      <div className={`feedback-card-top ${isCorrect ? 'correct' : 'wrong'}`}>
-        <motion.div
-          className="feedback-emoji"
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: 'spring', stiffness: 500, damping: 15, delay: 0.1 }}
-        >
-          {isCorrect ? '🎉' : '💪'}
-        </motion.div>
-        <h3 className={`feedback-title ${isCorrect ? 'correct' : 'wrong'}`}>
-          {isCorrect ? '答对啦！' : '没关系，看看正确答案'}
-        </h3>
-      </div>
-
-      <div className="feedback-card-body">
-        <div className="feedback-answer-label">正确答案</div>
-        <LatexContent text={correctAnswer} className="feedback-answer-content" />
-
-        {nextActionReasoning && (
-          <div className="feedback-next-reasoning">
-            <span className="feedback-ai-tag">AI 决策</span>
-            {nextActionReasoning}
-          </div>
-        )}
-
-        <div className="feedback-actions-row">
-          <button
-            className="feedback-explain-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              onExplain();
-            }}
+      <motion.div
+        className="feedback-card"
+        initial={{ opacity: 0, y: 50, scale: 0.9 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 30, scale: 0.95 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={`feedback-card-top ${isCorrect ? 'correct' : 'wrong'}`}>
+          <motion.div
+            className="feedback-emoji"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 15, delay: 0.1 }}
           >
-            🧠 看 AI 讲解
-          </button>
-          <button className="feedback-next-btn" onClick={onNext}>
-            {isLast ? '查看总结 🏆' : '下一题 →'}
-          </button>
+            {isCorrect ? '🎉' : '💪'}
+          </motion.div>
+          <h3 className={`feedback-title ${isCorrect ? 'correct' : 'wrong'}`}>
+            {isCorrect ? '答对啦！' : '没关系，看看正确答案'}
+          </h3>
+          {aiBadge && (
+            <span className={`feedback-ai-badge ${aiBadge.includes('修正') ? 'corrected' : 'confirmed'}`}>
+              {aiBadge}
+            </span>
+          )}
         </div>
-      </div>
+
+        <div className="feedback-card-body">
+          <div className="feedback-answer-label">正确答案</div>
+          <LatexContent text={correctAnswer} className="feedback-answer-content" />
+
+          {aiErrorType && ERROR_TYPE_LABEL[aiErrorType] && (
+            <div className="feedback-error-type">
+              <span className="feedback-ai-tag">错因</span>
+              {ERROR_TYPE_LABEL[aiErrorType]}
+            </div>
+          )}
+
+          {nextActionReasoning && (
+            <div className={`feedback-next-reasoning ${isForceEnd ? 'force-end' : ''} ${isSuggestBreak ? 'suggest-break' : ''}`}>
+              <span className="feedback-ai-tag">AI 决策</span>
+              {nextActionReasoning}
+            </div>
+          )}
+
+          <div className="feedback-actions-row">
+            <button
+              className="feedback-explain-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onExplain();
+              }}
+            >
+              🧠 看 AI 讲解
+            </button>
+            <button className="feedback-next-btn" onClick={onNext}>
+              {nextLabel}
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </motion.div>
-  </motion.div>
-);
+  );
+};
 
 /* ========================================
    做题总结
@@ -793,6 +838,9 @@ const PracticePage: React.FC = () => {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [explainOpen, setExplainOpen] = useState(false);
   const [nextActionReasoning, setNextActionReasoning] = useState<string | null>(null);
+  const [nextActionType, setNextActionType] = useState<string | null>(null);
+  const [aiBadge, setAiBadge] = useState<string | null>(null);
+  const [aiErrorType, setAiErrorType] = useState<string | null>(null);
 
   // 单元名映射（从 URL param 到实际单元名）
   const UNIT_MAP: Record<string, string> = {
@@ -862,6 +910,9 @@ const PracticePage: React.FC = () => {
       // 先用本地结果立即填入 store（渲染 FeedbackOverlay）
       store.submitAnswer(userAnswer, localCorrect);
       setNextActionReasoning(null);
+      setNextActionType(null);
+      setAiBadge(null);
+      setAiErrorType(null);
 
       // 2. 后端权威判题 + 决策（异步覆盖结果）
       if (sessionId) {
@@ -878,9 +929,22 @@ const PracticePage: React.FC = () => {
           if (result?.next_action?.reasoning) {
             setNextActionReasoning(result.next_action.reasoning);
           }
-          // 如果后端判题与前端不一致（例如 LLM 兜底），更新反馈
-          if (typeof result?.is_correct === 'boolean' && result.is_correct !== localCorrect) {
-            console.info('[判题] 后端 LLM 修正了前端结果', { local: localCorrect, llm: result.is_correct });
+          if (result?.next_action?.action) {
+            setNextActionType(result.next_action.action);
+          }
+          // 后端判题结果（包含 LLM 兜底）
+          if (typeof result?.is_correct === 'boolean') {
+            if (result.is_correct !== localCorrect) {
+              console.info('[判题] 后端 LLM 修正了前端结果', { local: localCorrect, llm: result.is_correct });
+              // 同步覆盖：让 store 反映正确答案
+              store.correctLastFeedback(result.is_correct);
+              setAiBadge(result.is_correct ? 'AI 修正：实际正确' : 'AI 修正：实际错误');
+            } else {
+              setAiBadge('AI 已确认');
+            }
+          }
+          if (result?.error_type && result.error_type !== 'none') {
+            setAiErrorType(result.error_type);
           }
         } catch (e) {
           console.warn('后端 submit_answer 失败（保留前端判题）:', e);
@@ -890,12 +954,27 @@ const PracticePage: React.FC = () => {
     [store, sessionId],
   );
 
-  // 下一题
+  // 下一题（根据 next_action 闭环）
   const handleNext = useCallback(() => {
     setNextActionReasoning(null);
+    setAiBadge(null);
+    setAiErrorType(null);
+    // 决策引擎要求强制结束 → 直接进总结
+    if (nextActionType === 'force_end') {
+      console.info('[决策] force_end 触发，提前进入总结页');
+      // 结束 Tauri 会话
+      if (sessionId) {
+        learningService.endSession(sessionId, 'force_end').catch(() => {});
+      }
+      // 跳到总结
+      useQuestionStore.setState({ finished: true, lastFeedback: null });
+      setNextActionType(null);
+      return;
+    }
+    setNextActionType(null);
     store.nextQuestion();
     timer.reset();
-  }, [store, timer]);
+  }, [store, timer, nextActionType, sessionId]);
 
   // 看讲解
   const handleExplain = useCallback(() => {
@@ -1071,6 +1150,9 @@ const PracticePage: React.FC = () => {
             onExplain={handleExplain}
             isLast={store.currentIndex >= store.questions.length - 1}
             nextActionReasoning={nextActionReasoning}
+            nextActionType={nextActionType}
+            aiBadge={aiBadge}
+            aiErrorType={aiErrorType}
           />
         )}
       </AnimatePresence>
