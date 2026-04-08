@@ -64,6 +64,7 @@ pub fn run() {
             commands::learning::submit_answer,
             commands::learning::end_session,
             commands::learning::generate_session_summary,
+            commands::learning::clear_student_data,
             // 学生模型
             commands::student_model::get_student_profile,
             commands::student_model::get_student_state,

@@ -68,12 +68,27 @@ const SettingsPage: React.FC = () => {
     setTimeout(() => setSaveMsg(''), 3000);
   };
 
-  const handleClearData = () => {
-    if (window.confirm('确定要清除所有学习数据吗？此操作不可撤销！')) {
-      localStorage.removeItem('mock_answer_records');
-      setSaveMsg('学习数据已清除');
-      setTimeout(() => setSaveMsg(''), 2000);
+  const handleClearData = async () => {
+    if (!window.confirm('确定要清除所有学习数据吗？此操作不可撤销！')) return;
+
+    // 始终清 localStorage 浏览器 mock 端
+    localStorage.removeItem('mock_answer_records');
+
+    // Tauri 模式：调后端清空数据库
+    try {
+      const { learningService } = await import('../../services');
+      const result = await learningService.clearStudentData('default-student');
+      if (result) {
+        console.info('[清除数据] 后端删除行数:', result.total_deleted);
+      }
+    } catch (e) {
+      console.warn('[清除数据] 后端调用失败（浏览器模式或未配置）:', e);
     }
+
+    // 通知其他页面（如知识地图）刷新进度
+    window.dispatchEvent(new CustomEvent('learning-data:cleared'));
+    setSaveMsg('学习数据已清除');
+    setTimeout(() => setSaveMsg(''), 2000);
   };
 
   const sections = [

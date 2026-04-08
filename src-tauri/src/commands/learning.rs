@@ -468,6 +468,77 @@ fn rule_judge(q: &crate::services::question_bank::BaseQuestion, student_answer: 
     ((is_correct, error_type, feedback), !needs_llm)
 }
 
+/// 清除学生所有学习数据
+///
+/// 删除以下表中该学生的所有行（保留 students / knowledge_nodes / questions 静态表）：
+/// - answer_records
+/// - learning_sessions
+/// - knowledge_mastery
+/// - behavior_features
+/// - student_states
+/// - event_logs
+/// - hint_records
+/// - daily_stats
+/// - chat_records
+/// - interest_profile
+/// - student_background
+///
+/// 同时清空 DashMap 中的实时状态和对话节奏缓存。
+#[tauri::command]
+pub async fn clear_student_data(
+    student_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    tracing::warn!("清除学生数据: {}", student_id);
+
+    let deleted = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+
+        // 依赖顺序：先清子表（有 FK 的），再清父表
+        let tables_student: &[&str] = &[
+            "answer_records",
+            "behavior_features",
+            "student_states",
+            "hint_records",
+            "event_logs",
+            "chat_records",
+            "knowledge_mastery",
+            "daily_stats",
+            "learning_sessions",
+            "interest_profile",
+            "student_background",
+        ];
+
+        for table in tables_student {
+            let sql = format!("DELETE FROM {} WHERE student_id = ?1", table);
+            match db.execute(&sql, rusqlite::params![student_id]) {
+                Ok(n) => { counts.insert(*table, n); }
+                Err(e) => { tracing::warn!("清除 {} 失败: {}", table, e); }
+            }
+        }
+
+        counts
+    };
+
+    // 清空 DashMap
+    state.student_states.remove(&student_id);
+    state.chat_pacing.remove(&student_id);
+
+    // AI 题目缓存整表清（因为不按 student 区分）
+    state.ai_questions.clear();
+
+    let total: usize = deleted.values().sum();
+    tracing::info!("清除完成: 共删除 {} 行", total);
+
+    Ok(serde_json::json!({
+        "student_id": student_id,
+        "total_deleted": total,
+        "detail": deleted.into_iter().collect::<std::collections::HashMap<_, _>>(),
+    }))
+}
+
 /// AI 个性化会话总结
 ///
 /// 读取 session 的 answer_records，组装成简短摘要喂给 LLM，

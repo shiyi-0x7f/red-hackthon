@@ -11,7 +11,10 @@ import {
   EnvironmentFilled,
   FlagFilled,
 } from '@ant-design/icons';
+import { studentModelService } from '../../services';
 import '../../styles/learn-map.css';
+
+const STUDENT_ID = 'default-student';
 
 interface RawKnowledgeUnit {
   单元: string;
@@ -59,6 +62,57 @@ const UNIT_CFGS = [
   { theme: '#FFD54F', emoji: '🏆', landscape: '终极殿堂' },
 ];
 
+interface Progress {
+  /** 前 N 个节点视为 completed */
+  completedTotal: number;
+  /** current 节点的全局 index（= completedTotal） */
+  currentIdx: number;
+  /** available 节点的全局 index（= currentIdx + 1） */
+  availableIdx: number;
+  /** 数据来源：后端 DB 或浏览器 mock */
+  source: 'backend' | 'mock';
+}
+
+/**
+ * 计算当前进度：
+ * 1. 优先尝试从 Tauri 后端 getProfileOverview 读真实答题总数
+ * 2. 失败（浏览器模式 / 后端未启动）→ fallback 到 localStorage mock
+ *
+ * 映射规则：每 2 条真实答题记录 ≈ 完成一个知识点节点
+ * 清除学习数据后 → answer_count=0 → 所有节点回到初始态
+ */
+async function computeProgress(): Promise<Progress> {
+  // 先尝试后端
+  try {
+    const overview = await studentModelService.getProfileOverview(STUDENT_ID);
+    if (overview) {
+      const n = overview.total_questions || 0;
+      const completed = Math.min(Math.floor(n / 2), 60);
+      return {
+        completedTotal: completed,
+        currentIdx: completed,
+        availableIdx: completed + 1,
+        source: 'backend',
+      };
+    }
+  } catch (e) {
+    console.warn('[Learn] 后端进度获取失败，fallback 到 localStorage:', e);
+  }
+
+  // fallback 到浏览器 mock
+  try {
+    const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
+    const n = Array.isArray(records) ? records.length : 0;
+    if (n === 0) {
+      return { completedTotal: 0, currentIdx: 0, availableIdx: 1, source: 'mock' };
+    }
+    const completed = Math.min(Math.floor(n / 2), 40);
+    return { completedTotal: completed, currentIdx: completed, availableIdx: completed + 1, source: 'mock' };
+  } catch {
+    return { completedTotal: 0, currentIdx: 0, availableIdx: 1, source: 'mock' };
+  }
+}
+
 /**
  * 从知识图谱 JSON 构造单元：每个知识点 = 一个节点
  *
@@ -68,14 +122,11 @@ const UNIT_CFGS = [
  *   - 从基础题库拉该单元的题（规则筛选）
  *   - 若 API Key 可用，追加 1~2 道 AI 按学生兴趣生成的题
  *
- * 节点状态（演示用）：前 N 完成、第 N+1 当前、第 N+2 可用，其余 locked
+ * 节点状态根据 progress 动态计算，不再写死。
  */
-function buildUnitsFromKnowledgeMap(km: RawKnowledgeMap): MapUnit[] {
+function buildUnitsFromKnowledgeMap(km: RawKnowledgeMap, progress: Progress): MapUnit[] {
   const units: MapUnit[] = [];
   let nodeCounter = 0;
-  const COMPLETED_TOTAL = 10;
-  const CURRENT_INDEX = 10;
-  const AVAILABLE_INDEX = 11;
 
   let unitIdx = 0;
   for (const semesterName of ['上册', '下册']) {
@@ -86,14 +137,16 @@ function buildUnitsFromKnowledgeMap(km: RawKnowledgeMap): MapUnit[] {
         const globalIdx = nodeCounter++;
         let status: MapNode['status'] = 'locked';
         let stars = 0, attempts = 0;
-        if (globalIdx < COMPLETED_TOTAL) {
+        if (globalIdx < progress.completedTotal) {
           status = 'completed';
-          stars = globalIdx < 4 ? 3 : globalIdx < 8 ? 2 : 1;
-          attempts = 2 + Math.floor(Math.random() * 8);
-        } else if (globalIdx === CURRENT_INDEX) {
+          // 星星按相对位置分配（越早完成越稳）
+          const relative = globalIdx / Math.max(1, progress.completedTotal);
+          stars = relative < 0.4 ? 3 : relative < 0.75 ? 2 : 1;
+          attempts = 2 + Math.floor(Math.random() * 6);
+        } else if (globalIdx === progress.currentIdx) {
           status = 'current';
-          attempts = 1;
-        } else if (globalIdx === AVAILABLE_INDEX) {
+          attempts = 0;
+        } else if (globalIdx === progress.availableIdx) {
           status = 'available';
         }
         return {
@@ -329,22 +382,64 @@ const LearnPage: React.FC = () => {
   const [sem, setSem] = useState<'上册' | '下册'>('上册');
   const [allUnits, setAllUnits] = useState<MapUnit[]>([]);
   const [loading, setLoading] = useState(true);
+  // 保存原始知识图谱数据，便于进度变化时重新构建节点
+  const rawKmRef = React.useRef<RawKnowledgeMap | null>(null);
 
-  // 加载真实知识图谱（JSON 里是单元 → 知识点列表）
+  const rebuildFromCurrentProgress = React.useCallback(async () => {
+    if (!rawKmRef.current) return;
+    const progress = await computeProgress();
+    setAllUnits(buildUnitsFromKnowledgeMap(rawKmRef.current, progress));
+  }, []);
+
+  // 首次加载知识图谱
   useEffect(() => {
     let cancelled = false;
-    fetch('/data/grade6_math_knowledge_map.json')
-      .then((r) => r.json() as Promise<RawKnowledgeMap>)
-      .then((km) => {
+    (async () => {
+      try {
+        const resp = await fetch('/data/grade6_math_knowledge_map.json');
+        const km = (await resp.json()) as RawKnowledgeMap;
         if (cancelled) return;
-        setAllUnits(buildUnitsFromKnowledgeMap(km));
-      })
-      .catch((e) => console.error('[Learn] 知识图谱加载失败:', e))
-      .finally(() => {
+        rawKmRef.current = km;
+        const progress = await computeProgress();
+        if (cancelled) return;
+        setAllUnits(buildUnitsFromKnowledgeMap(km, progress));
+      } catch (e) {
+        console.error('[Learn] 知识图谱加载失败:', e);
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
     return () => { cancelled = true; };
   }, []);
+
+  // 监听 localStorage 变化（例如 Settings 页清除数据）+ window focus
+  // 同一个 tab 内的 localStorage 变化不会触发 storage 事件，所以还监听 focus
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'mock_answer_records' || e.key === null) {
+        rebuildFromCurrentProgress();
+      }
+    };
+    const onFocus = () => {
+      rebuildFromCurrentProgress();
+    };
+    // Tab 切换回 Learn 页也应该刷新（Home/Practice 切回来）
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') rebuildFromCurrentProgress();
+    };
+    // Settings 页清除数据时派发的自定义事件（同一 tab 内有效）
+    const onCleared = () => rebuildFromCurrentProgress();
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('learning-data:cleared', onCleared);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('learning-data:cleared', onCleared);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [rebuildFromCurrentProgress]);
 
   // 按学期分流：前 8 单元 = 上册，其余下册
   const upper = allUnits.slice(0, 8);

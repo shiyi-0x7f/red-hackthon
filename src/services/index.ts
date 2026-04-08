@@ -112,6 +112,12 @@ export const learningService = {
   endSession: (sessionId: string, reason: string) =>
     invoke('end_session', { sessionId, reason }),
 
+  /** 清除学生所有学习数据（删库，保留学生 / 知识点 / 题目静态表） */
+  clearStudentData: async (studentId: string): Promise<{ total_deleted: number } | null> => {
+    if (!isTauri()) return null;
+    return invoke('clear_student_data', { studentId });
+  },
+
   generateSessionSummary: async (sessionId: string): Promise<SessionSummary> => {
     if (!isTauri()) {
       return {
