@@ -2,6 +2,16 @@
    知识探索地图 — 连续冒险路径
    ======================================== */
 
+.map-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 16px;
+  color: var(--color-text-secondary);
+  padding: 60px 20px;
+}
+
 .learn-map-page {
   height: 100%;
   display: flex;

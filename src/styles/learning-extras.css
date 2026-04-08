@@ -778,6 +778,17 @@
   font-style: italic;
 }
 
+/* 知识点副标题（Practice 头部） */
+.practice-kp-sep {
+  color: var(--color-text-muted);
+  margin: 0 4px;
+}
+.practice-kp-name {
+  color: var(--color-accent);
+  font-weight: 600;
+  font-size: 13px;
+}
+
 /* Autopilot 切换按钮 */
 .autopilot-toggle {
   padding: 6px 14px;

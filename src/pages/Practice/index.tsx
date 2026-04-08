@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LeftOutlined,
@@ -904,6 +904,8 @@ const MODE_LABELS: Record<string, { text: string; cls: string }> = {
 const PracticePage: React.FC = () => {
   const navigate = useNavigate();
   const { unitId } = useParams<{ unitId?: string }>();
+  const [searchParams] = useSearchParams();
+  const knowledgePoint = searchParams.get('kp') || null;
   const store = useQuestionStore();
   const timer = useTimer();
 
@@ -1085,7 +1087,8 @@ const PracticePage: React.FC = () => {
       setAutopilotLoading(true);
       try {
         const currentQ = store.currentQuestion();
-        const targetUnit = currentQ?.unit ?? '分数乘法';
+        const rawUnit = currentQ?.unit ?? '分数乘法';
+        const targetUnit = knowledgePoint ? `${rawUnit} - ${knowledgePoint}` : rawUnit;
         const targetDifficulty = currentQ?.difficulty ?? 2;
         console.info('[autopilot] 拉取下一题:', { unit: targetUnit, difficulty: targetDifficulty, action: nextActionType });
         const aiQ = await questionService.generateAiQuestion(STUDENT_ID, targetUnit, targetDifficulty);
@@ -1109,21 +1112,23 @@ const PracticePage: React.FC = () => {
     setNextActionType(null);
     store.nextQuestion();
     timer.reset();
-  }, [store, timer, nextActionType, sessionId, autopilotEnabled]);
+  }, [store, timer, nextActionType, sessionId, autopilotEnabled, knowledgePoint]);
 
   // 看讲解
   const handleExplain = useCallback(() => {
     setExplainOpen(true);
   }, []);
 
-  // AI 出题：根据当前单元 + 难度调 LLM 生成新题，插入到下一题位置
+  // AI 出题：根据当前单元 + 知识点 + 难度调 LLM 生成新题，插入到下一题位置
   const [aiLoading, setAiLoading] = useState(false);
   const handleAiQuestion = useCallback(async () => {
     const q = store.currentQuestion();
     if (!q || aiLoading) return;
     setAiLoading(true);
     try {
-      const aiQ = await questionService.generateAiQuestion(STUDENT_ID, q.unit, q.difficulty);
+      // 如果从 Learn 页带了知识点参数，让 AI 出题更聚焦
+      const unitWithKp = knowledgePoint ? `${q.unit} - ${knowledgePoint}` : q.unit;
+      const aiQ = await questionService.generateAiQuestion(STUDENT_ID, unitWithKp, q.difficulty);
       // 插入到下一题位置
       store.insertNextQuestion({
         id: aiQ.id,
@@ -1141,7 +1146,7 @@ const PracticePage: React.FC = () => {
     } finally {
       setAiLoading(false);
     }
-  }, [store, aiLoading]);
+  }, [store, aiLoading, knowledgePoint]);
 
   // 重新来一组
   const handleRetry = useCallback(async () => {
@@ -1239,7 +1244,11 @@ const PracticePage: React.FC = () => {
         </button>
 
         <div className="practice-unit-info">
-          <span className="practice-unit-name">{unitName}</span>
+          <span className="practice-unit-name">
+            {unitName}
+            {knowledgePoint && <span className="practice-kp-sep"> · </span>}
+            {knowledgePoint && <span className="practice-kp-name">{knowledgePoint}</span>}
+          </span>
           <span className={`practice-mode-label ${modeInfo.cls}`}>{modeInfo.text}</span>
         </div>
 

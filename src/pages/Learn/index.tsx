@@ -13,6 +13,14 @@ import {
 } from '@ant-design/icons';
 import '../../styles/learn-map.css';
 
+interface RawKnowledgeUnit {
+  单元: string;
+  知识点: string[];
+}
+interface RawKnowledgeMap {
+  学期: Record<string, RawKnowledgeUnit[]>;
+}
+
 /* ========================================
    类型 & 配置
    ======================================== */
@@ -51,41 +59,63 @@ const UNIT_CFGS = [
   { theme: '#FFD54F', emoji: '🏆', landscape: '终极殿堂' },
 ];
 
-const RAW = [
-  { name: '分数乘法', kps: ['分数乘整数', '分数乘分数', '分数乘小数', '简便计算', '运算定律推广', '连续求几分之几', '多(少)几分之几', '应用题'] },
-  { name: '位置与方向', kps: ['方向距离定位', '平面图标位置', '描述路线图', '偏向描述', '路线规划'] },
-  { name: '分数除法', kps: ['倒数认识', '分数÷整数', '数÷分数', '混合运算', '除法应用题', '求几分之几', '工程问题'] },
-  { name: '比', kps: ['比的意义', '各部分名称', '比与除法关系', '基本性质', '化简比', '求比值', '按比分配', '比应用题'] },
-  { name: '圆', kps: ['圆的认识', '圆规画圆', '半径直径圆心', '圆周率', '周长公式', '面积公式', '圆环面积', '不规则面积', '扇形认识', '综合实践'] },
-  { name: '百分数(一)', kps: ['意义和读写', '与分数小数', '百分率', '求百分之几', '多少百分之几', '求数', '应用题'] },
-  { name: '扇形统计图', kps: ['统计图认识', '读取信息', '比较统计图', '选择统计图', '结果分析'] },
-  { name: '数与形', kps: ['图形发现规律', '数形结合', '图形理解公式', '规律归纳'] },
-  { name: '负数', kps: ['正负数意义', '相反量', '零的特殊性', '读写法', '直线表示', '大小比较'] },
-  { name: '百分数(二)', kps: ['折扣计算', '成数计算', '税率纳税', '利率利息', '生活百分数', '综合应用'] },
-  { name: '圆柱与圆锥', kps: ['圆柱特征', '底面侧面高', '侧面积表面积', '圆柱体积', '求不规则体积', '圆锥特征', '圆锥体积', '体积关系'] },
-  { name: '比例', kps: ['比例意义', '基本性质', '判断比例', '解比例', '正比例', '反比例', '比例尺', '放大缩小', '比例解题'] },
-  { name: '鸽巢问题', kps: ['基本含义', 'n+1放入n', '一般形式', '原理解题', '构造模型'] },
-  { name: '整理复习', kps: ['数与代数', '比和比例', '图形几何', '统计概率', '数学思考', '综合实践'] },
-];
+/**
+ * 从知识图谱 JSON 构造单元：每个知识点 = 一个节点
+ *
+ * 点击节点 → 打开详情 → "开始闯关" 跳转到
+ *   /practice/{unit}?kp={kp}
+ * Practice 页读取 kp 参数后：
+ *   - 从基础题库拉该单元的题（规则筛选）
+ *   - 若 API Key 可用，追加 1~2 道 AI 按学生兴趣生成的题
+ *
+ * 节点状态（演示用）：前 N 完成、第 N+1 当前、第 N+2 可用，其余 locked
+ */
+function buildUnitsFromKnowledgeMap(km: RawKnowledgeMap): MapUnit[] {
+  const units: MapUnit[] = [];
+  let nodeCounter = 0;
+  const COMPLETED_TOTAL = 10;
+  const CURRENT_INDEX = 10;
+  const AVAILABLE_INDEX = 11;
 
-function makeMockData(): MapUnit[] {
-  let idx = 0;
-  return RAW.map((u, ui) => {
-    const c = UNIT_CFGS[ui];
-    const nodes: MapNode[] = u.kps.map((kp) => {
-      idx++;
-      let status: MapNode['status'] = 'locked';
-      let stars = 0, attempts = 0;
-      if (idx <= 10) { status = 'completed'; stars = idx <= 5 ? 3 : idx <= 8 ? 2 : 1; attempts = 3 + Math.floor(Math.random() * 10); }
-      else if (idx === 11) { status = 'current'; stars = 1; attempts = 3; }
-      else if (idx === 12) { status = 'available'; }
-      return { id: `k${idx}`, name: kp, stars, status, attempts };
-    });
-    return { id: `u${ui + 1}`, name: u.name, ...c, nodes };
-  });
+  let unitIdx = 0;
+  for (const semesterName of ['上册', '下册']) {
+    const semUnits = km.学期[semesterName] || [];
+    for (const u of semUnits) {
+      const cfg = UNIT_CFGS[unitIdx % UNIT_CFGS.length];
+      const nodes: MapNode[] = u.知识点.map((kp, ki) => {
+        const globalIdx = nodeCounter++;
+        let status: MapNode['status'] = 'locked';
+        let stars = 0, attempts = 0;
+        if (globalIdx < COMPLETED_TOTAL) {
+          status = 'completed';
+          stars = globalIdx < 4 ? 3 : globalIdx < 8 ? 2 : 1;
+          attempts = 2 + Math.floor(Math.random() * 8);
+        } else if (globalIdx === CURRENT_INDEX) {
+          status = 'current';
+          attempts = 1;
+        } else if (globalIdx === AVAILABLE_INDEX) {
+          status = 'available';
+        }
+        return {
+          id: `k${unitIdx + 1}-${ki + 1}`,
+          name: kp,
+          stars,
+          status,
+          attempts,
+        };
+      });
+      units.push({
+        id: `u${unitIdx + 1}`,
+        name: u.单元,
+        ...cfg,
+        nodes,
+      });
+      unitIdx++;
+    }
+  }
+  return units;
 }
 
-const DATA = makeMockData();
 const PER_ROW = 4;
 
 /* ========================================
@@ -254,7 +284,7 @@ const WindingNodes: React.FC<{
    详情弹窗
    ======================================== */
 
-const Detail: React.FC<{ node: MapNode; theme: string; unitId: string; onClose: () => void }> = ({ node, theme, unitId, onClose }) => {
+const Detail: React.FC<{ node: MapNode; theme: string; unitName: string; onClose: () => void }> = ({ node, theme, unitName, onClose }) => {
   const navigate = useNavigate();
   return (
   <motion.div className="node-detail-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose}>
@@ -281,7 +311,7 @@ const Detail: React.FC<{ node: MapNode; theme: string; unitId: string; onClose: 
           ))}
         </div>
 
-        <button className="detail-start-btn" style={{ background: `linear-gradient(135deg, ${theme}, ${theme}BB)` }} onClick={() => { navigate(`/practice/${unitId}`); onClose(); }}>
+        <button className="detail-start-btn" style={{ background: `linear-gradient(135deg, ${theme}, ${theme}BB)` }} onClick={() => { navigate(`/practice/${encodeURIComponent(unitName)}?kp=${encodeURIComponent(node.name)}`); onClose(); }}>
           {node.status === 'completed' ? '🔄 再次挑战' : '🚀 开始闯关'} <RightOutlined />
         </button>
       </div>
@@ -295,19 +325,49 @@ const Detail: React.FC<{ node: MapNode; theme: string; unitId: string; onClose: 
    ======================================== */
 
 const LearnPage: React.FC = () => {
-  const [sel, setSel] = useState<{ node: MapNode; theme: string; unitId: string } | null>(null);
+  const [sel, setSel] = useState<{ node: MapNode; theme: string; unitName: string } | null>(null);
   const [sem, setSem] = useState<'上册' | '下册'>('上册');
+  const [allUnits, setAllUnits] = useState<MapUnit[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const units = sem === '上册' ? DATA.slice(0, 8) : DATA.slice(8);
+  // 加载真实知识图谱（JSON 里是单元 → 知识点列表）
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/data/grade6_math_knowledge_map.json')
+      .then((r) => r.json() as Promise<RawKnowledgeMap>)
+      .then((km) => {
+        if (cancelled) return;
+        setAllUnits(buildUnitsFromKnowledgeMap(km));
+      })
+      .catch((e) => console.error('[Learn] 知识图谱加载失败:', e))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  // 按学期分流：前 8 单元 = 上册，其余下册
+  const upper = allUnits.slice(0, 8);
+  const lower = allUnits.slice(8);
+  const units = sem === '上册' ? upper : lower;
 
   useEffect(() => {
+    if (loading) return;
     setTimeout(() => {
       document.querySelector('.path-node.current')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 800);
-  }, []);
+  }, [loading]);
 
-  const totalStars = DATA.reduce((s, u) => s + u.nodes.reduce((a, n) => a + n.stars, 0), 0);
-  const maxStars = DATA.reduce((s, u) => s + u.nodes.length * 3, 0);
+  const totalStars = allUnits.reduce((s, u) => s + u.nodes.reduce((a, n) => a + n.stars, 0), 0);
+  const maxStars = allUnits.reduce((s, u) => s + u.nodes.length * 3, 0);
+
+  if (loading) {
+    return (
+      <div className="learn-map-page">
+        <div className="map-loading">📚 正在加载知识地图...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="learn-map-page">
@@ -361,7 +421,7 @@ const LearnPage: React.FC = () => {
                 </div>
 
                 {/* 节点路径 */}
-                <WindingNodes unit={unit} unitIdx={idx} onNodeClick={n => setSel({ node: n, theme: unit.theme, unitId: unit.id })} />
+                <WindingNodes unit={unit} unitIdx={idx} onNodeClick={n => setSel({ node: n, theme: unit.theme, unitName: unit.name })} />
               </motion.div>
             );
           })}
@@ -374,7 +434,7 @@ const LearnPage: React.FC = () => {
       </div>
 
       <AnimatePresence>
-        {sel && <Detail node={sel.node} theme={sel.theme} unitId={sel.unitId} onClose={() => setSel(null)} />}
+        {sel && <Detail node={sel.node} theme={sel.theme} unitName={sel.unitName} onClose={() => setSel(null)} />}
       </AnimatePresence>
     </div>
   );
