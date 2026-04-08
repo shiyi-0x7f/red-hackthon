@@ -84,6 +84,87 @@ pub async fn get_student_profile(
     }))
 }
 
+/// 错题本：返回学生最近答错的题目
+///
+/// 字段：question_id / unit / question_type / content / correct_answer /
+/// student_answer / error_type / created_at
+#[tauri::command]
+pub async fn get_wrong_answers(
+    student_id: String,
+    limit: Option<i32>,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<serde_json::Value>> {
+    let limit = limit.unwrap_or(20).clamp(1, 100);
+    let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    let mut stmt = db.prepare(
+        "SELECT ar.id, ar.question_id, ar.student_answer, ar.error_type, ar.created_at,
+                q.content, q.answer, q.question_type,
+                COALESCE(kn.name, '') AS unit
+         FROM answer_records ar
+         LEFT JOIN questions q ON ar.question_id = q.id
+         LEFT JOIN knowledge_nodes kn ON q.knowledge_id = kn.id
+         WHERE ar.student_id = ?1 AND ar.is_correct = 0
+         ORDER BY ar.created_at DESC LIMIT ?2"
+    )?;
+    let rows = stmt.query_map(rusqlite::params![student_id, limit], |row| {
+        Ok(serde_json::json!({
+            "record_id": row.get::<_, String>(0)?,
+            "question_id": row.get::<_, String>(1)?,
+            "student_answer": row.get::<_, String>(2)?,
+            "error_type": row.get::<_, Option<String>>(3)?,
+            "created_at": row.get::<_, String>(4)?,
+            "content_latex": row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+            "answer_latex": row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+            "question_type": row.get::<_, Option<String>>(7)?.unwrap_or_default(),
+            "unit": row.get::<_, String>(8)?,
+        }))
+    })?;
+    for r in rows.flatten() { out.push(r); }
+    Ok(out)
+}
+
+/// 复习推荐：返回 forgetting_risk 高的知识点 + 该知识点的真题样本
+///
+/// 用于 Review 页驱动遗忘曲线复习
+#[tauri::command]
+pub async fn get_review_recommendations(
+    student_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<Vec<serde_json::Value>> {
+    let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let mut out: Vec<serde_json::Value> = Vec::new();
+    let mut stmt = db.prepare(
+        "SELECT km.knowledge_id, COALESCE(kn.name, km.knowledge_id) AS name,
+                km.mastery_score, km.forgetting_risk, km.attempt_count,
+                km.last_practiced_at
+         FROM knowledge_mastery km
+         LEFT JOIN knowledge_nodes kn ON km.knowledge_id = kn.id
+         WHERE km.student_id = ?1
+         ORDER BY km.forgetting_risk DESC, km.mastery_score ASC
+         LIMIT 8"
+    )?;
+    let rows = stmt.query_map(rusqlite::params![student_id], |row| {
+        let last_at: Option<String> = row.get(5)?;
+        let hours_ago = last_at.as_ref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| (chrono::Utc::now() - dt.with_timezone(&chrono::Utc)).num_hours())
+            .unwrap_or(0);
+        Ok(serde_json::json!({
+            "knowledge_id": row.get::<_, String>(0)?,
+            "name": row.get::<_, String>(1)?,
+            "mastery_score": row.get::<_, f64>(2)?,
+            "forgetting_risk": row.get::<_, f64>(3)?,
+            "attempt_count": row.get::<_, i32>(4)?,
+            "hours_since_last": hours_ago,
+        }))
+    })?;
+    for r in rows.flatten() { out.push(r); }
+    Ok(out)
+}
+
 /// 获取学生整体学习概况（用于 Profile 页统计卡 + 时间趋势图）
 ///
 /// 返回：

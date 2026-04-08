@@ -932,7 +932,10 @@ const PracticePage: React.FC = () => {
     async function loadQuiz() {
       setLoading(true);
       try {
-        const unitName = unitId ? UNIT_MAP[unitId] : undefined;
+        // 兼容两种 unitId：u1..u14（短码）或直接中文 unit 名
+        const unitName = unitId
+          ? (UNIT_MAP[unitId] || decodeURIComponent(unitId))
+          : undefined;
         const result = await questionBankService.getQuiz(STUDENT_ID, unitName, 5);
         if (!cancelled && result.questions.length > 0) {
           store.loadQuiz(result.questions, result.mode);
@@ -1120,7 +1123,9 @@ const PracticePage: React.FC = () => {
   const handleRetry = useCallback(async () => {
     setLoading(true);
     try {
-      const unitName = unitId ? UNIT_MAP[unitId] : undefined;
+      const unitName = unitId
+        ? (UNIT_MAP[unitId] || decodeURIComponent(unitId))
+        : undefined;
       const result = await questionBankService.getQuiz('default-student', unitName, 5);
       if (result.questions.length > 0) {
         store.loadQuiz(result.questions, result.mode);

@@ -807,6 +807,134 @@
   cursor: wait;
 }
 
+/* =========================================================
+   错题本
+   ========================================================= */
+.wrong-book-card {
+  margin-top: 24px;
+}
+.wrong-book-empty {
+  padding: 30px 0;
+  text-align: center;
+  color: #9892c0;
+  font-size: 14px;
+}
+
+.wrong-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.wrong-item {
+  background: #fff;
+  border: 1px solid #f0eefb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  border-left: 4px solid #FF6B6B;
+}
+
+.wrong-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.wrong-item-unit {
+  background: #f7f5ff;
+  color: #4a3e85;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.wrong-item-type {
+  background: #e3f2fd;
+  color: #1976d2;
+  padding: 2px 10px;
+  border-radius: 10px;
+}
+.wrong-item-error-tag {
+  background: #fff4e6;
+  color: #8c5a00;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.wrong-item-date {
+  margin-left: auto;
+  color: #9892c0;
+  font-size: 11px;
+}
+
+.wrong-item-content {
+  font-size: 14px;
+  color: #2c2550;
+  line-height: 1.7;
+  margin-bottom: 10px;
+}
+
+.wrong-item-answers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.wrong-answer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.wrong-answer-student {
+  background: #fff2f2;
+}
+.wrong-answer-correct {
+  background: #e8f5e9;
+}
+.wrong-answer-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.06);
+  color: #555;
+}
+.wrong-answer-student .wrong-answer-value {
+  color: #c0392b;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.wrong-answer-correct .wrong-answer-value {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.wrong-item-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.wrong-explain-btn {
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #7C5CFC 0%, #54B5FF 100%);
+  color: #fff;
+  border: none;
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.18s;
+}
+.wrong-explain-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(124, 92, 252, 0.3);
+}
+
 /* Profile 页数据来源标签 */
 .profile-source-tag {
   display: inline-block;

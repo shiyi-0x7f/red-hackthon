@@ -225,6 +225,27 @@ export const hintService = {
 };
 
 // === 学生模型 ===
+export interface WrongAnswer {
+  record_id: string;
+  question_id: string;
+  student_answer: string;
+  error_type: string | null;
+  created_at: string;
+  content_latex: string;
+  answer_latex: string;
+  question_type: string;
+  unit: string;
+}
+
+export interface ReviewItem {
+  knowledge_id: string;
+  name: string;
+  mastery_score: number;
+  forgetting_risk: number;
+  attempt_count: number;
+  hours_since_last: number;
+}
+
 export interface ProfileOverview {
   student_id: string;
   total_questions: number;
@@ -294,6 +315,48 @@ export const studentModelService = {
   getProfileOverview: async (studentId: string): Promise<ProfileOverview | null> => {
     if (!isTauri()) return null;
     return invoke<ProfileOverview>('get_profile_overview', { studentId });
+  },
+
+  /** 错题本：返回学生最近答错的题目 */
+  getWrongAnswers: async (studentId: string, limit: number = 20): Promise<WrongAnswer[]> => {
+    if (!isTauri()) {
+      // 浏览器 mock：从 localStorage mock_answer_records 凑一些
+      try {
+        const records: Array<{ questionId: string; isCorrect: boolean; timestamp: number }> =
+          JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
+        return records
+          .filter((r) => !r.isCorrect)
+          .slice(-limit)
+          .reverse()
+          .map((r, i) => ({
+            record_id: 'mock-' + i,
+            question_id: r.questionId,
+            student_answer: '示例错答',
+            error_type: 'procedural',
+            created_at: new Date(r.timestamp).toISOString(),
+            content_latex: '示例题目（Tauri 模式下显示真实内容）',
+            answer_latex: '示例答案',
+            question_type: '计算题',
+            unit: '示例单元',
+          }));
+      } catch {
+        return [];
+      }
+    }
+    return invoke<WrongAnswer[]>('get_wrong_answers', { studentId, limit });
+  },
+
+  /** 复习推荐：高遗忘风险知识点 */
+  getReviewRecommendations: async (studentId: string): Promise<ReviewItem[]> => {
+    if (!isTauri()) {
+      // 浏览器 mock：基于 Profile mock 数据生成
+      return [
+        { knowledge_id: 'kn-比', name: '比', mastery_score: 0.58, forgetting_risk: 0.72, attempt_count: 6, hours_since_last: 50 },
+        { knowledge_id: 'kn-圆', name: '圆', mastery_score: 0.45, forgetting_risk: 0.66, attempt_count: 4, hours_since_last: 75 },
+        { knowledge_id: 'kn-百分数', name: '百分数', mastery_score: 0.38, forgetting_risk: 0.62, attempt_count: 3, hours_since_last: 120 },
+      ];
+    }
+    return invoke<ReviewItem[]>('get_review_recommendations', { studentId });
   },
 
   /** 6 层实时画像（Practice 页右侧仪表盘用） */

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import ReactECharts from 'echarts-for-react';
 import { studentModelService, type ProfileOverview } from '../../services';
+import WrongAnswerBook from '../../components/learning/WrongAnswerBook';
+import '../../styles/learning-extras.css';
 
 const STUDENT_ID = 'default-student';
 
@@ -370,6 +372,9 @@ const ProfilePage: React.FC = () => {
           <ReactECharts option={attemptOption} style={{ height: 260, width: '100%' }} />
         </div>
       </div>
+
+      {/* 错题本 */}
+      <WrongAnswerBook studentId={STUDENT_ID} />
 
       {/* 遗忘预警 */}
       {forgettingAlerts.length > 0 && (

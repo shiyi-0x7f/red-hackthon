@@ -165,6 +165,31 @@ pub async fn submit_answer(
     // 写入 answer_records + 更新 session + 加权 BKT
     {
         let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+        // 确保 knowledge_nodes + questions 行存在（FK 前置条件）
+        if let Some(q) = &question_info {
+            let knowledge_id = format!("kn-{}", q.unit.replace(' ', "_"));
+            let _ = db.execute(
+                "INSERT OR IGNORE INTO knowledge_nodes (id, name, grade, semester, unit, sort_order)
+                 VALUES (?1, ?2, 6, 1, 0, 0)",
+                rusqlite::params![knowledge_id, q.unit],
+            );
+            let _ = db.execute(
+                "INSERT OR IGNORE INTO questions (id, knowledge_id, question_type, difficulty, content, answer, source, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![
+                    question_id,
+                    knowledge_id,
+                    q.question_type,
+                    q.difficulty,
+                    q.content_latex,
+                    q.answer_latex,
+                    if q.id.starts_with("ai-") { "ai" } else { "bank" },
+                    now.to_rfc3339(),
+                ],
+            );
+        }
+
         db.execute(
             "INSERT INTO answer_records (id, session_id, question_id, student_id, student_answer, is_correct, time_spent_secs, hint_used, error_type, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",

@@ -1,39 +1,78 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { studentModelService, type ReviewItem as BackendReviewItem } from '../../services';
 
-interface ReviewItem {
+const STUDENT_ID = 'default-student';
+
+interface UiReviewItem {
   id: string;
+  knowledge_id: string;
   name: string;
   mastery: number;
   forgettingRisk: number;
-  lastPracticed: string;
-  daysSince: number;
+  attemptCount: number;
+  hoursSinceLast: number;
 }
 
-const mockReviewItems: ReviewItem[] = [
-  { id: 'r1', name: '分数除法', mastery: 0.55, forgettingRisk: 0.72, lastPracticed: '3天前', daysSince: 3 },
-  { id: 'r2', name: '圆的面积', mastery: 0.42, forgettingRisk: 0.68, lastPracticed: '5天前', daysSince: 5 },
-  { id: 'r3', name: '百分数应用', mastery: 0.38, forgettingRisk: 0.65, lastPracticed: '4天前', daysSince: 4 },
-  { id: 'r4', name: '比的基本性质', mastery: 0.60, forgettingRisk: 0.58, lastPracticed: '2天前', daysSince: 2 },
-  { id: 'r5', name: '位置与方向', mastery: 0.48, forgettingRisk: 0.55, lastPracticed: '6天前', daysSince: 6 },
-  { id: 'r6', name: '扇形统计图', mastery: 0.30, forgettingRisk: 0.80, lastPracticed: '7天前', daysSince: 7 },
-];
+function fromBackend(b: BackendReviewItem): UiReviewItem {
+  return {
+    id: b.knowledge_id,
+    knowledge_id: b.knowledge_id,
+    name: b.name,
+    mastery: b.mastery_score,
+    forgettingRisk: b.forgetting_risk,
+    attemptCount: b.attempt_count,
+    hoursSinceLast: b.hours_since_last,
+  };
+}
+
+const formatLastSeen = (hours: number): string => {
+  if (hours < 1) return '刚刚';
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  return `${days} 天前`;
+};
 
 const ReviewPage: React.FC = () => {
   const navigate = useNavigate();
+  const [items, setItems] = useState<UiReviewItem[]>([]);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [dataSource, setDataSource] = useState<'mock' | 'tauri'>('mock');
 
-  const sortedItems = [...mockReviewItems].sort((a, b) => b.forgettingRisk - a.forgettingRisk);
-  const todoItems = sortedItems.filter(i => !completedIds.has(i.id));
-  const doneItems = sortedItems.filter(i => completedIds.has(i.id));
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    studentModelService
+      .getReviewRecommendations(STUDENT_ID)
+      .then((real) => {
+        if (cancelled) return;
+        setItems(real.map(fromBackend));
+        // 检测是否真实后端：通过 hours_since_last 字段是否随机化判断
+        // 简化：用 isTauri 副效应（service 内部已分流）
+        if (typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
+          setDataSource('tauri');
+        }
+      })
+      .catch((e) => console.warn('[Review] 拉取推荐失败:', e))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
-  const handleStartReview = (item: ReviewItem) => {
+  const sortedItems = [...items].sort((a, b) => b.forgettingRisk - a.forgettingRisk);
+  const todoItems = sortedItems.filter((i) => !completedIds.has(i.id));
+  const doneItems = sortedItems.filter((i) => completedIds.has(i.id));
+
+  const handleStartReview = (item: UiReviewItem) => {
+    // Practice 页支持中文 unit 名直接作为 unitId
     navigate(`/practice/${encodeURIComponent(item.name)}`);
   };
 
   const handleMarkDone = (id: string) => {
-    setCompletedIds(prev => new Set(prev).add(id));
+    setCompletedIds((prev) => new Set(prev).add(id));
   };
 
   const urgencyColor = (risk: number) => {
@@ -57,7 +96,12 @@ const ReviewPage: React.FC = () => {
     >
       <div className="review-header">
         <div>
-          <h1 className="page-title">🔄 智能复习</h1>
+          <h1 className="page-title">
+            🔄 智能复习
+            <span className={`profile-source-tag ${dataSource}`}>
+              {dataSource === 'tauri' ? '✅ 实时数据' : '🧪 演示数据'}
+            </span>
+          </h1>
           <p className="page-subtitle">AI 根据遗忘曲线，帮你找到最需要复习的知识点</p>
         </div>
         <div className="review-summary">
@@ -72,14 +116,18 @@ const ReviewPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 今日复习计划 */}
       <div className="review-plan">
         <h2 className="section-title-inline">📋 今日复习计划</h2>
 
-        {todoItems.length === 0 ? (
+        {loading ? (
+          <div className="review-empty">
+            <span className="review-empty-icon">⏳</span>
+            <p>正在从遗忘曲线分析需要复习的知识点...</p>
+          </div>
+        ) : todoItems.length === 0 ? (
           <div className="review-empty">
             <span className="review-empty-icon">🎉</span>
-            <p>今天的复习任务都完成啦！</p>
+            <p>{items.length === 0 ? '还没有学习数据，先去做几道题吧！' : '今天的复习任务都完成啦！'}</p>
           </div>
         ) : (
           <div className="review-cards">
@@ -102,7 +150,9 @@ const ReviewPage: React.FC = () => {
                       <div className="review-card-meta">
                         <span>掌握度 {(item.mastery * 100).toFixed(0)}%</span>
                         <span className="meta-dot">·</span>
-                        <span>上次练习 {item.lastPracticed}</span>
+                        <span>遗忘风险 {(item.forgettingRisk * 100).toFixed(0)}%</span>
+                        <span className="meta-dot">·</span>
+                        <span>上次 {formatLastSeen(item.hoursSinceLast)}</span>
                       </div>
                     </div>
                   </div>
@@ -128,7 +178,6 @@ const ReviewPage: React.FC = () => {
         )}
       </div>
 
-      {/* 已完成 */}
       {doneItems.length > 0 && (
         <div className="review-done-section">
           <h2 className="section-title-inline">✅ 已完成</h2>

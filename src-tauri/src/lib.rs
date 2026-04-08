@@ -69,6 +69,8 @@ pub fn run() {
             commands::student_model::get_student_state,
             commands::student_model::get_realtime_profile,
             commands::student_model::get_profile_overview,
+            commands::student_model::get_wrong_answers,
+            commands::student_model::get_review_recommendations,
             // 决策引擎
             commands::decision::get_next_action,
             // 节奏控制
