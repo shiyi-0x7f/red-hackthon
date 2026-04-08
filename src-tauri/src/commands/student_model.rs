@@ -135,6 +135,13 @@ pub async fn get_wrong_answers(
 /// attempt=7 → 168 小时（7 天）
 /// attempt=8 → 360 小时（15 天）
 /// attempt≥9 → 720 小时（30 天）
+///
+/// 掌握度系数是 **二次** 的（而非线性），让高掌握度知识点的复习间隔
+/// 大幅拉长：
+/// - mastery=0.0 → 0.4x（4 成时间，频繁复习）
+/// - mastery=0.5 → 1.15x（接近标准间隔）
+/// - mastery=0.8 → 2.32x
+/// - mastery=1.0 → 3.4x（间隔拉到 3 倍多，几乎不打扰）
 fn ebbinghaus_interval_hours(attempts: i32, mastery: f64) -> f64 {
     let base: f64 = match attempts {
         0 | 1 => 0.33,
@@ -147,8 +154,9 @@ fn ebbinghaus_interval_hours(attempts: i32, mastery: f64) -> f64 {
         8 => 360.0,
         _ => 720.0,
     };
-    // 掌握度高的延长间隔（最多 2 倍），掌握度低的缩短（最多 0.5 倍）
-    let mastery_factor = 0.5 + mastery * 1.5;
+    // 二次曲线：0.4 + mastery² × 3 → 范围 0.4 ~ 3.4
+    let m = mastery.clamp(0.0, 1.0);
+    let mastery_factor = 0.4 + m * m * 3.0;
     base * mastery_factor
 }
 
@@ -208,8 +216,13 @@ pub async fn get_review_recommendations(
         // 过期比例（>=1 表示已过期）
         let overdue_ratio = hours_ago / ideal.max(0.1);
 
-        // 优先级：过期越久、掌握度越低、遗忘风险越高 → 分数越高
-        let priority = overdue_ratio * (1.0 - mastery).max(0.1) * (risk + 0.1);
+        // 优先级：
+        // - overdue_ratio：过期越久越紧迫
+        // - (1 - mastery)² ：二次惩罚高掌握度（0.9 掌握 → 0.01 系数，几乎不推荐）
+        // - (risk + 0.1) ：遗忘风险
+        // - max(0.02) 底线：100% 掌握仍保留极小优先级，防止完全遗忘
+        let mastery_penalty = ((1.0 - mastery) * (1.0 - mastery)).max(0.02);
+        let priority = overdue_ratio * mastery_penalty * (risk + 0.1);
 
         candidates.push((
             priority,

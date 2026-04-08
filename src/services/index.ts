@@ -379,12 +379,14 @@ export const studentModelService = {
           map.set(key, entry);
         }
 
-        // Ebbinghaus interval（简化版，与后端对齐）
+        // Ebbinghaus interval（与后端对齐：mastery 用二次曲线）
         const intervalHours = (attempts: number, mastery: number): number => {
           const base = attempts <= 1 ? 0.33 : attempts === 2 ? 1 : attempts === 3 ? 8
                      : attempts === 4 ? 24 : attempts === 5 ? 48 : attempts === 6 ? 96
                      : attempts === 7 ? 168 : attempts === 8 ? 360 : 720;
-          return base * (0.5 + mastery * 1.5);
+          const m = Math.max(0, Math.min(1, mastery));
+          // 二次：0.4 + m² × 3 → mastery=1 时拉到 3.4 倍，几乎不打扰
+          return base * (0.4 + m * m * 3);
         };
 
         const items: ReviewItem[] = [];
@@ -395,7 +397,9 @@ export const studentModelService = {
           if (hoursAgo < ideal * 0.8) continue; // 未到期
           const overdueRatio = hoursAgo / Math.max(0.1, ideal);
           const risk = Math.max(0, Math.min(1, 1 - mastery * Math.exp(-hoursAgo / 48)));
-          const priority = overdueRatio * Math.max(0.1, 1 - mastery) * (risk + 0.1);
+          // 二次惩罚高掌握度：(1-mastery)² 带 0.02 底线
+          const masteryPenalty = Math.max(0.02, (1 - mastery) ** 2);
+          const priority = overdueRatio * masteryPenalty * (risk + 0.1);
           items.push({
             knowledge_id: 'kn-' + name,
             name,
