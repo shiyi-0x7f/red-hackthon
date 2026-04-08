@@ -588,6 +588,7 @@ const FeedbackOverlay: React.FC<{
   aiBadge?: string | null;
   aiErrorType?: string | null;
   autopilotLoading?: boolean;
+  autopilotEnabled?: boolean;
 }> = ({
   isCorrect,
   correctAnswer,
@@ -599,16 +600,18 @@ const FeedbackOverlay: React.FC<{
   aiBadge,
   aiErrorType,
   autopilotLoading = false,
+  autopilotEnabled = false,
 }) => {
   // 决策引擎要求强制结束 → 按钮文案变化
   const isForceEnd = nextActionType === 'force_end';
   const isSuggestBreak = nextActionType === 'suggest_break';
+  // autopilot 开启 + 不是强制结束 → 永远是「再来一道」（即使是最后一题，会自动出新题）
   const nextLabel = isForceEnd
     ? '立即查看总结 🏁'
     : isSuggestBreak
       ? '我懂了，去休息一会 ☕'
       : isLast
-        ? '查看总结 🏆'
+        ? (autopilotEnabled ? '再来一道 ✨' : '查看总结 🏆')
         : '下一题 →';
 
   return (
@@ -1305,6 +1308,7 @@ const PracticePage: React.FC = () => {
             aiBadge={aiBadge}
             aiErrorType={aiErrorType}
             autopilotLoading={autopilotLoading}
+            autopilotEnabled={autopilotEnabled}
           />
         )}
       </AnimatePresence>
