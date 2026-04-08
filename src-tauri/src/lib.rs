@@ -65,6 +65,7 @@ pub fn run() {
             // 学生模型
             commands::student_model::get_student_profile,
             commands::student_model::get_student_state,
+            commands::student_model::get_realtime_profile,
             // 决策引擎
             commands::decision::get_next_action,
             // 节奏控制

@@ -16,6 +16,7 @@ import { useQuestionStore, type Question } from '../../stores/useQuestionStore';
 import { questionBankService, saveMockAnswerRecord, learningService } from '../../services';
 import HintPanel from '../../components/learning/HintPanel';
 import ExplanationPanel from '../../components/learning/ExplanationPanel';
+import StudentDashboard from '../../components/learning/StudentDashboard';
 import '../../styles/practice.css';
 import '../../styles/learning-extras.css';
 
@@ -1165,6 +1166,9 @@ const PracticePage: React.FC = () => {
         sessionId={sessionId ?? undefined}
         onClose={() => setExplainOpen(false)}
       />
+
+      {/* 实时学生画像（右侧固定面板，每次答题后刷新） */}
+      <StudentDashboard studentId={STUDENT_ID} refreshKey={store.answers.length} />
     </div>
   );
 };

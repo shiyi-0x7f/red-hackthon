@@ -84,6 +84,115 @@ pub async fn get_student_profile(
     }))
 }
 
+/// 获取学生实时画像（6 层聚合，给 Practice 页右侧仪表盘用）
+///
+/// 数据源：
+/// - knowledge_layer ← knowledge_mastery 表（top-3 弱点）
+/// - behavior_layer  ← behavior_features 最近一行（accuracy / hint_dependency / impulsivity / avg_response_time）
+/// - state_layer     ← student_states 最近一行 + DashMap 兜底
+/// - session_layer   ← DashMap 实时会话信息
+#[tauri::command]
+pub async fn get_realtime_profile(
+    student_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+    // === knowledge_layer ===
+    let mut weak_topics: Vec<serde_json::Value> = Vec::new();
+    let mut total_mastery = 0.0;
+    let mut count = 0;
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT km.knowledge_id, COALESCE(kn.name, km.knowledge_id), km.mastery_score, km.forgetting_risk, km.attempt_count
+         FROM knowledge_mastery km
+         LEFT JOIN knowledge_nodes kn ON km.knowledge_id = kn.id
+         WHERE km.student_id = ?1
+         ORDER BY km.mastery_score ASC LIMIT 3"
+    ) {
+        if let Ok(rows) = stmt.query_map(rusqlite::params![student_id], |row| {
+            Ok(serde_json::json!({
+                "name": row.get::<_, String>(1)?,
+                "mastery": row.get::<_, f64>(2)?,
+                "forgetting_risk": row.get::<_, f64>(3)?,
+                "attempts": row.get::<_, i32>(4)?,
+            }))
+        }) {
+            for r in rows.flatten() { weak_topics.push(r); }
+        }
+    }
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT AVG(mastery_score), COUNT(*) FROM knowledge_mastery WHERE student_id = ?1"
+    ) {
+        if let Ok(row) = stmt.query_row(rusqlite::params![student_id], |row| {
+            Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, i64>(1)?))
+        }) {
+            total_mastery = row.0.unwrap_or(0.0);
+            count = row.1;
+        }
+    }
+
+    // === behavior_layer (最近 1 条快照) ===
+    let behavior = db.query_row(
+        "SELECT avg_response_time, accuracy_rate, hint_usage_rate, impulsivity, hint_dependency, max_consecutive_errors, sample_count
+         FROM behavior_features WHERE student_id = ?1 ORDER BY id DESC LIMIT 1",
+        rusqlite::params![student_id],
+        |row| Ok(serde_json::json!({
+            "avg_response_time": row.get::<_, f64>(0)?,
+            "accuracy_rate": row.get::<_, f64>(1)?,
+            "hint_usage_rate": row.get::<_, f64>(2)?,
+            "impulsivity": row.get::<_, f64>(3)?,
+            "hint_dependency": row.get::<_, f64>(4)?,
+            "max_consecutive_errors": row.get::<_, i32>(5)?,
+            "sample_count": row.get::<_, i32>(6)?,
+        })),
+    ).unwrap_or_else(|_| serde_json::json!({
+        "avg_response_time": 0.0, "accuracy_rate": 0.0, "hint_usage_rate": 0.0,
+        "impulsivity": 0.0, "hint_dependency": 0.0, "max_consecutive_errors": 0, "sample_count": 0
+    }));
+
+    // === state_layer (最近 1 条快照) ===
+    let state_snapshot = db.query_row(
+        "SELECT fatigue_level, attention_level, frustration, cognitive_load, consecutive_errors
+         FROM student_states WHERE student_id = ?1 ORDER BY id DESC LIMIT 1",
+        rusqlite::params![student_id],
+        |row| Ok(serde_json::json!({
+            "fatigue": row.get::<_, f64>(0)?,
+            "attention": row.get::<_, f64>(1)?,
+            "frustration": row.get::<_, f64>(2)?,
+            "cognitive_load": row.get::<_, f64>(3)?,
+            "consecutive_errors": row.get::<_, i32>(4)?,
+        })),
+    ).unwrap_or_else(|_| serde_json::json!({
+        "fatigue": 0.0, "attention": 1.0, "frustration": 0.0, "cognitive_load": 0.0, "consecutive_errors": 0
+    }));
+
+    drop(db);
+
+    // === session_layer (DashMap) ===
+    let session = if let Some(rt) = state.student_states.get(&student_id) {
+        serde_json::json!({
+            "active": rt.current_session_id.is_some(),
+            "duration_secs": rt.session_duration_secs,
+            "total_questions": rt.total_questions,
+            "correct_count": rt.correct_count,
+        })
+    } else {
+        serde_json::json!({"active": false, "duration_secs": 0, "total_questions": 0, "correct_count": 0})
+    };
+
+    Ok(serde_json::json!({
+        "student_id": student_id,
+        "knowledge_layer": {
+            "avg_mastery": total_mastery,
+            "topic_count": count,
+            "weak_topics": weak_topics,
+        },
+        "behavior_layer": behavior,
+        "state_layer": state_snapshot,
+        "session_layer": session,
+    }))
+}
+
 /// 获取学生实时状态
 #[tauri::command]
 pub async fn get_student_state(

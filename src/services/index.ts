@@ -172,12 +172,77 @@ export const hintService = {
 };
 
 // === 学生模型 ===
+export interface RealtimeProfile {
+  student_id: string;
+  knowledge_layer: {
+    avg_mastery: number;
+    topic_count: number;
+    weak_topics: Array<{
+      name: string;
+      mastery: number;
+      forgetting_risk: number;
+      attempts: number;
+    }>;
+  };
+  behavior_layer: {
+    avg_response_time: number;
+    accuracy_rate: number;
+    hint_usage_rate: number;
+    impulsivity: number;
+    hint_dependency: number;
+    max_consecutive_errors: number;
+    sample_count: number;
+  };
+  state_layer: {
+    fatigue: number;
+    attention: number;
+    frustration: number;
+    cognitive_load: number;
+    consecutive_errors: number;
+  };
+  session_layer: {
+    active: boolean;
+    duration_secs: number;
+    total_questions: number;
+    correct_count: number;
+  };
+}
+
 export const studentModelService = {
   getProfile: (studentId: string) =>
     invoke('get_student_profile', { studentId }),
 
   getState: (studentId: string) =>
     invoke('get_student_state', { studentId }),
+
+  /** 6 层实时画像（Practice 页右侧仪表盘用） */
+  getRealtimeProfile: async (studentId: string): Promise<RealtimeProfile> => {
+    if (!isTauri()) {
+      // 浏览器 mock：随机但合理的数据
+      return {
+        student_id: studentId,
+        knowledge_layer: {
+          avg_mastery: 0.45,
+          topic_count: 3,
+          weak_topics: [
+            { name: '分数除法', mastery: 0.32, forgetting_risk: 0.4, attempts: 4 },
+            { name: '比', mastery: 0.48, forgetting_risk: 0.2, attempts: 6 },
+          ],
+        },
+        behavior_layer: {
+          avg_response_time: 18.5, accuracy_rate: 0.62, hint_usage_rate: 0.15,
+          impulsivity: 0.1, hint_dependency: 0.18, max_consecutive_errors: 2, sample_count: 8,
+        },
+        state_layer: {
+          fatigue: 0.2, attention: 0.85, frustration: 0.1, cognitive_load: 0.3, consecutive_errors: 0,
+        },
+        session_layer: {
+          active: false, duration_secs: 0, total_questions: 0, correct_count: 0,
+        },
+      };
+    }
+    return invoke<RealtimeProfile>('get_realtime_profile', { studentId });
+  },
 };
 
 // === 决策引擎 ===
