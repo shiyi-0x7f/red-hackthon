@@ -19,9 +19,18 @@ pub async fn start_session(
 
     tracing::info!("学生 {} 开始学习会话 {}", student_id, session_id);
 
-    // 写入 learning_sessions 表
+    // 写入 learning_sessions 表（先确保学生存在，避免外键报错）
     {
         let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+        // 自动创建默认学生（幂等）
+        let default_name = if student_id == "default-student" { "小明" } else { &student_id };
+        let _ = db.execute(
+            "INSERT OR IGNORE INTO students (id, name, grade, created_at, updated_at)
+             VALUES (?1, ?2, 6, datetime('now'), datetime('now'))",
+            rusqlite::params![student_id, default_name],
+        );
+
         db.execute(
             "INSERT INTO learning_sessions (id, student_id, started_at, total_questions, correct_count)
              VALUES (?1, ?2, ?3, 0, 0)",

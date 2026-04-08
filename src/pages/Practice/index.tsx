@@ -814,12 +814,16 @@ const PracticePage: React.FC = () => {
         if (!cancelled && result.questions.length > 0) {
           store.loadQuiz(result.questions, result.mode);
         }
-        // 启动 Tauri 学习会话（浏览器 mock 静默失败）
+        // 启动 Tauri 学习会话（浏览器 mock 模式会抛异常，此时走前端 mock 判题）
         try {
           const session = await learningService.startSession(STUDENT_ID) as { session_id?: string };
-          if (!cancelled && session?.session_id) setSessionId(session.session_id);
-        } catch {
-          /* 浏览器 mock 模式静默 */
+          if (!cancelled && session?.session_id) {
+            setSessionId(session.session_id);
+            console.info('[Practice] 学习会话启动成功:', session.session_id);
+          }
+        } catch (e) {
+          // Tauri 环境下这里也可能失败（例如外键约束），必须打印
+          console.warn('[Practice] startSession 失败，后端判题/决策链路将跳过:', e);
         }
       } catch (e) {
         console.error('加载题目失败:', e);
