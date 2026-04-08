@@ -689,7 +689,8 @@ const FeedbackOverlay: React.FC<{
 const SummaryView: React.FC<{
   onGoBack: () => void;
   onRetry: () => void;
-}> = ({ onGoBack, onRetry }) => {
+  sessionId: string | null;
+}> = ({ onGoBack, onRetry, sessionId }) => {
   const store = useQuestionStore();
   const { totalQuestions, correctCount, accuracy, totalTimeSecs, answers } = store.summary();
   const questions = store.questions;
@@ -698,7 +699,31 @@ const SummaryView: React.FC<{
   const circumference = 2 * Math.PI * 42;
   const dashoffset = circumference * (1 - accuracy);
 
+  // === AI 个性化总结（异步加载） ===
+  const [aiSummary, setAiSummary] = useState<import('../../services').SessionSummary | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!sessionId) {
+      setSummaryLoading(false);
+      return;
+    }
+    setSummaryLoading(true);
+    learningService
+      .generateSessionSummary(sessionId)
+      .then((s) => {
+        if (!cancelled) setAiSummary(s);
+      })
+      .catch((e) => console.warn('[Summary] LLM 总结失败:', e))
+      .finally(() => {
+        if (!cancelled) setSummaryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
   const getTitle = () => {
+    if (aiSummary?.headline) return aiSummary.headline;
     if (accuracyPercent >= 90) return '太棒了！🌟';
     if (accuracyPercent >= 70) return '做得不错！👏';
     if (accuracyPercent >= 50) return '继续努力！💪';
@@ -782,6 +807,49 @@ const SummaryView: React.FC<{
               <span className="summary-stat-label">平均用时</span>
             </div>
           </div>
+
+          {/* AI 个性化总结 */}
+          {(summaryLoading || aiSummary) && (
+            <motion.div
+              className="ai-summary-block"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.8 }}
+            >
+              <div className="ai-summary-header">
+                <span className="ai-summary-tag">AI 老师点评</span>
+                {aiSummary?.from_llm === false && (
+                  <span className="ai-summary-source">兜底</span>
+                )}
+              </div>
+              {summaryLoading && !aiSummary && (
+                <div className="ai-summary-loading">老师正在帮你回顾...</div>
+              )}
+              {aiSummary && (
+                <>
+                  {(aiSummary.highlights?.length ?? 0) > 0 && (
+                    <div className="ai-summary-section">
+                      <div className="ai-summary-section-title">✨ 值得肯定的</div>
+                      <ul className="ai-summary-list">
+                        {aiSummary.highlights.map((h, i) => <li key={i}>{h}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {(aiSummary.to_review?.length ?? 0) > 0 && (
+                    <div className="ai-summary-section">
+                      <div className="ai-summary-section-title">🌱 下次再练练</div>
+                      <ul className="ai-summary-list">
+                        {aiSummary.to_review.map((t, i) => <li key={i}>{t}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {aiSummary.encouragement && (
+                    <div className="ai-summary-encourage">{aiSummary.encouragement}</div>
+                  )}
+                </>
+              )}
+            </motion.div>
+          )}
 
           {/* 题目回顾 */}
           <div className="summary-review-list">
@@ -1044,6 +1112,7 @@ const PracticePage: React.FC = () => {
       <SummaryView
         onGoBack={() => navigate('/learn')}
         onRetry={handleRetry}
+        sessionId={sessionId}
       />
     );
   }

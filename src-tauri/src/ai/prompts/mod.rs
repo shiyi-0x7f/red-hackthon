@@ -123,6 +123,53 @@ pub fn layered_hint(question: &str, correct_answer: &str, level: i32, grade: i32
     )
 }
 
+/// 个性化会话总结 Prompt
+///
+/// 输入：本次会话答题摘要 + 学生整体掌握度
+/// 输出：严格 JSON
+pub fn session_summary(
+    grade: i32,
+    total: i32,
+    correct: i32,
+    accuracy_pct: i32,
+    duration_minutes: i64,
+    answers_brief: &str,
+    weak_topics: &[String],
+) -> String {
+    let weak_str = if weak_topics.is_empty() {
+        "（无）".to_string()
+    } else {
+        weak_topics.join("、")
+    };
+    format!(
+        "你是一位{grade}年级小学数学老师。学生刚刚完成一次练习，请给出一段个性化、鼓励性的总结。\n\n\
+         本次练习数据：\n\
+         - 共做了 {total} 道题，做对 {correct} 道（正确率 {accuracy_pct}%）\n\
+         - 用时 {duration_minutes} 分钟\n\
+         - 题目摘要：\n{answers_brief}\n\n\
+         整体薄弱知识点：{weak_str}\n\n\
+         请严格按以下 JSON 格式输出，不要 markdown 代码块包裹，不要任何额外文字：\n\
+         {{\n\
+           \"headline\": \"一句话总评（10~18 字，亲切鼓励，不评判性格）\",\n\
+           \"highlights\": [\"本次最值得肯定的 1~3 件事，每条 15 字内\"],\n\
+           \"to_review\": [\"建议下次重点复习的 1~3 个知识点，每条 15 字内\"],\n\
+           \"encouragement\": \"一句温暖结尾（不超过 30 字，不要使用绝对化词汇如永远/一定/最）\"\n\
+         }}\n\n\
+         约束：\n\
+         - 禁止贴标签（不要说\"你很冲动/内向\"等）\n\
+         - 禁止情感绑定（不要\"我永远陪你\"）\n\
+         - 措辞用「我们」而不是「你」\n\
+         - 全部内容不超过 200 字",
+        grade = grade,
+        total = total,
+        correct = correct,
+        accuracy_pct = accuracy_pct,
+        duration_minutes = duration_minutes,
+        answers_brief = answers_brief,
+        weak_str = weak_str,
+    )
+}
+
 /// AI 动态出题 Prompt
 ///
 /// 输入：年级、单元、目标难度（1~5）、薄弱知识点（可选）

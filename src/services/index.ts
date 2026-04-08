@@ -111,7 +111,36 @@ export const learningService = {
 
   endSession: (sessionId: string, reason: string) =>
     invoke('end_session', { sessionId, reason }),
+
+  generateSessionSummary: async (sessionId: string): Promise<SessionSummary> => {
+    if (!isTauri()) {
+      return {
+        headline: '今天做得很棒！',
+        highlights: ['完成了 5 道练习题', '保持了稳定的节奏'],
+        to_review: ['分数除法', '比与百分数'],
+        encouragement: '我们一起期待下次的进步！',
+        total_questions: 5,
+        correct_count: 4,
+        accuracy_pct: 80,
+        duration_minutes: 5,
+        from_llm: false,
+      };
+    }
+    return invoke<SessionSummary>('generate_session_summary', { sessionId });
+  },
 };
+
+export interface SessionSummary {
+  headline: string;
+  highlights: string[];
+  to_review: string[];
+  encouragement: string;
+  total_questions: number;
+  correct_count: number;
+  accuracy_pct: number;
+  duration_minutes: number;
+  from_llm: boolean;
+}
 
 // === 讲解（流式 + 可视化）===
 export interface ExplanationDonePayload {

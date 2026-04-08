@@ -708,6 +708,77 @@
 }
 
 /* =========================================================
+   总结页 AI 老师点评
+   ========================================================= */
+.ai-summary-block {
+  margin: 16px 0 12px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, #f7f5ff 0%, #f0f8ff 100%);
+  border-radius: 14px;
+  border: 1px solid #e6e1ff;
+}
+
+.ai-summary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ai-summary-tag {
+  display: inline-block;
+  padding: 3px 12px;
+  background: linear-gradient(135deg, #7C5CFC 0%, #54B5FF 100%);
+  color: #fff;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.ai-summary-source {
+  font-size: 10px;
+  color: #9892c0;
+  font-style: italic;
+}
+
+.ai-summary-loading {
+  padding: 12px 0;
+  text-align: center;
+  color: #9892c0;
+  font-size: 13px;
+}
+
+.ai-summary-section {
+  margin-bottom: 10px;
+}
+.ai-summary-section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #4a3e85;
+  margin-bottom: 4px;
+}
+.ai-summary-list {
+  margin: 0;
+  padding-left: 20px;
+}
+.ai-summary-list li {
+  font-size: 13px;
+  color: #2c2550;
+  line-height: 1.6;
+  margin-bottom: 2px;
+}
+
+.ai-summary-encourage {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border-radius: 10px;
+  font-size: 13px;
+  color: #4a3e85;
+  text-align: center;
+  font-style: italic;
+}
+
+/* =========================================================
    AI 出题按钮 + AI 题目标签
    ========================================================= */
 .ai-question-btn {

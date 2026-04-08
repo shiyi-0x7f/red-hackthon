@@ -443,6 +443,214 @@ fn rule_judge(q: &crate::services::question_bank::BaseQuestion, student_answer: 
     ((is_correct, error_type, feedback), !needs_llm)
 }
 
+/// AI 个性化会话总结
+///
+/// 读取 session 的 answer_records，组装成简短摘要喂给 LLM，
+/// 输出结构化的 headline / highlights / to_review / encouragement
+#[tauri::command]
+pub async fn generate_session_summary(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    tracing::info!("生成会话总结: session={}", session_id);
+
+    // 1. 读取 session 元信息
+    let (sid, total_q, correct_q, started_at, ended_at) = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        db.query_row(
+            "SELECT student_id, total_questions, correct_count, started_at, ended_at
+             FROM learning_sessions WHERE id = ?1",
+            rusqlite::params![session_id],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i32>(1)?,
+                row.get::<_, i32>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            )),
+        ).map_err(|_| AppError::NotFound(format!("会话 {} 不存在", session_id)))?
+    };
+
+    if total_q == 0 {
+        return Ok(serde_json::json!({
+            "headline": "本次还没做题",
+            "highlights": [],
+            "to_review": [],
+            "encouragement": "下次我们一起来挑战吧！",
+            "fallback": true,
+        }));
+    }
+
+    let accuracy_pct = (correct_q as f64 / total_q as f64 * 100.0).round() as i32;
+
+    // 计算时长（分钟）
+    let duration_minutes: i64 = {
+        let start = chrono::DateTime::parse_from_rfc3339(&started_at)
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .ok();
+        let end = ended_at.as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+            .unwrap_or_else(chrono::Utc::now);
+        match start {
+            Some(s) => (end - s).num_minutes().max(0),
+            None => 0,
+        }
+    };
+
+    // 2. 读 answer_records 摘要 + 取学生年级
+    let (answers_brief, grade) = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+
+        let g: i32 = db.query_row(
+            "SELECT grade FROM students WHERE id = ?1",
+            rusqlite::params![sid],
+            |row| row.get(0),
+        ).unwrap_or(6);
+
+        let mut stmt = db.prepare(
+            "SELECT ar.is_correct, ar.error_type, ar.hint_used, ar.time_spent_secs, q.unit
+             FROM answer_records ar
+             LEFT JOIN questions q ON ar.question_id = q.id
+             WHERE ar.session_id = ?1
+             ORDER BY ar.created_at ASC LIMIT 30"
+        )?;
+        let rows: Vec<(i32, Option<String>, i32, i64, Option<String>)> = stmt
+            .query_map(rusqlite::params![session_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))
+            })?
+            .flatten()
+            .collect();
+        drop(stmt);
+
+        let mut brief = String::new();
+        for (i, (is_correct, err, hint, time, unit)) in rows.iter().enumerate() {
+            let mark = if *is_correct == 1 { "✓" } else { "✗" };
+            let unit_s = unit.as_deref().unwrap_or("（未知单元）");
+            let err_s = err.as_deref().unwrap_or("");
+            brief.push_str(&format!(
+                "  {}. {} [{}] {}秒{}{}\n",
+                i + 1,
+                mark,
+                unit_s,
+                time,
+                if *hint > 0 { format!(" 用了{}层提示", hint) } else { String::new() },
+                if !err_s.is_empty() && *is_correct == 0 { format!(" 错因:{}", err_s) } else { String::new() },
+            ));
+        }
+        (brief, g)
+    };
+
+    // 3. 取学生薄弱知识点
+    let weak_topics: Vec<String> = {
+        let db = state.db.lock().map_err(|e| AppError::Internal(e.to_string()))?;
+        let mut topics = Vec::new();
+        if let Ok(mut stmt) = db.prepare(
+            "SELECT COALESCE(kn.name, km.knowledge_id) FROM knowledge_mastery km
+             LEFT JOIN knowledge_nodes kn ON km.knowledge_id = kn.id
+             WHERE km.student_id = ?1 ORDER BY km.mastery_score ASC LIMIT 3"
+        ) {
+            if let Ok(rows) = stmt.query_map(rusqlite::params![sid], |row| row.get::<_, String>(0)) {
+                for r in rows.flatten() { topics.push(r); }
+            }
+        }
+        topics
+    };
+
+    // 4. 调 LLM
+    let llm_clone = {
+        let guard = state.llm_client.lock().map_err(|e: std::sync::PoisonError<_>| AppError::Internal(e.to_string()))?;
+        guard.clone()
+    };
+
+    if let Some(llm) = llm_clone {
+        let prompt = prompts::session_summary(
+            grade, total_q, correct_q, accuracy_pct, duration_minutes,
+            &answers_brief, &weak_topics
+        );
+        let messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: "你是温暖的小学数学老师，必须严格 JSON 输出。".to_string(),
+            },
+            Message { role: "user".to_string(), content: prompt },
+        ];
+        let opts = LLMOptions {
+            temperature: Some(0.7),
+            max_tokens: Some(400),
+            top_p: Some(0.9),
+        };
+        match llm.complete(&messages, &opts).await {
+            Ok(raw) => {
+                let parsed = parse_summary_json(&raw)
+                    .unwrap_or_else(|| build_fallback_summary(accuracy_pct, &weak_topics));
+                // 把统计字段并入返回
+                let mut obj = parsed.as_object().cloned().unwrap_or_default();
+                obj.insert("total_questions".to_string(), serde_json::json!(total_q));
+                obj.insert("correct_count".to_string(), serde_json::json!(correct_q));
+                obj.insert("accuracy_pct".to_string(), serde_json::json!(accuracy_pct));
+                obj.insert("duration_minutes".to_string(), serde_json::json!(duration_minutes));
+                obj.insert("from_llm".to_string(), serde_json::json!(true));
+                return Ok(serde_json::Value::Object(obj));
+            }
+            Err(e) => {
+                tracing::warn!("LLM 总结失败: {}, 走兜底", e);
+            }
+        }
+    }
+
+    // 5. 兜底
+    let mut fallback = build_fallback_summary(accuracy_pct, &weak_topics).as_object().cloned().unwrap_or_default();
+    fallback.insert("total_questions".to_string(), serde_json::json!(total_q));
+    fallback.insert("correct_count".to_string(), serde_json::json!(correct_q));
+    fallback.insert("accuracy_pct".to_string(), serde_json::json!(accuracy_pct));
+    fallback.insert("duration_minutes".to_string(), serde_json::json!(duration_minutes));
+    fallback.insert("from_llm".to_string(), serde_json::json!(false));
+    Ok(serde_json::Value::Object(fallback))
+}
+
+fn parse_summary_json(raw: &str) -> Option<serde_json::Value> {
+    let trimmed = raw.trim();
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        if v.is_object() && v.get("headline").is_some() { return Some(v); }
+    }
+    if let Some(s) = trimmed.find("```json") {
+        let after = &trimmed[s + 7..];
+        if let Some(e) = after.find("```") {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(after[..e].trim()) {
+                if v.is_object() { return Some(v); }
+            }
+        }
+    }
+    if let (Some(s), Some(e)) = (trimmed.find('{'), trimmed.rfind('}')) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&trimmed[s..=e]) {
+                if v.is_object() { return Some(v); }
+            }
+        }
+    }
+    None
+}
+
+fn build_fallback_summary(accuracy_pct: i32, weak_topics: &[String]) -> serde_json::Value {
+    let headline = if accuracy_pct >= 90 {
+        "今天的状态非常棒！"
+    } else if accuracy_pct >= 70 {
+        "稳扎稳打，进步明显"
+    } else if accuracy_pct >= 50 {
+        "继续努力，越来越好"
+    } else {
+        "没关系，慢慢来"
+    };
+    let to_review: Vec<String> = weak_topics.iter().take(3).cloned().collect();
+    serde_json::json!({
+        "headline": headline,
+        "highlights": ["完成了今天的练习"],
+        "to_review": to_review,
+        "encouragement": "我们一起期待下一次的进步！",
+    })
+}
+
 /// 解析 LLM 判题的 JSON 输出
 fn parse_judge_json(raw: &str) -> Option<(bool, String, String)> {
     let try_parse = |s: &str| -> Option<serde_json::Value> { serde_json::from_str(s.trim()).ok() };
