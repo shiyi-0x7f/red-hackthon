@@ -171,49 +171,36 @@ const LearningSuggestionCard: React.FC<{ masteryData: MasteryItem[] }> = ({ mast
 };
 
 const ProfilePage: React.FC = () => {
-  const [profileData, setProfileData] = useState(getMockProfileData());
-  const [dataSource, setDataSource] = useState<'mock' | 'tauri'>('mock');
+  const studentId = useAppStore((s) => s.currentStudentId);
+  const [profileData, setProfileData] = useState<ProfileData>(EMPTY_PROFILE_DATA);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    // 优先尝试从 Tauri 后端拿真实数据；失败 / 浏览器模式 → mock
+    setLoading(true);
+    setError(null);
     studentModelService
-      .getProfileOverview(STUDENT_ID)
+      .getProfileOverview(studentId)
       .then((real) => {
         if (cancelled) return;
-        if (real && real.mastery_data && real.mastery_data.length > 0) {
+        if (real) {
           setProfileData(fromBackendOverview(real));
-          setDataSource('tauri');
-          console.info('[Profile] 使用真实后端数据');
-        } else if (real) {
-          // 后端有响应但 mastery 为空 → 学生还没做过题：显示空状态但用真实统计
-          setProfileData((prev) => ({
-            ...prev,
-            totalAnswers: real.total_questions,
-            correctCount: real.correct_count,
-            accuracy: real.accuracy,
-            learningDays: real.learning_days,
-            totalDurationMinutes: real.total_duration_minutes,
-            dailyStats: real.daily_stats.length > 0
-              ? real.daily_stats.map((d) => ({
-                  date: d.date.length >= 10 ? d.date.slice(5, 10) : d.date,
-                  duration_minutes: d.duration_minutes,
-                }))
-              : prev.dailyStats,
-          }));
-          setDataSource('tauri');
-          console.info('[Profile] 真实后端但暂无 mastery 数据，使用 mock mastery');
         } else {
-          setProfileData(getMockProfileData());
-          setDataSource('mock');
+          setProfileData(EMPTY_PROFILE_DATA);
         }
       })
       .catch((e) => {
-        console.warn('[Profile] 后端拉取失败，回退 mock:', e);
-        if (!cancelled) setProfileData(getMockProfileData());
+        if (cancelled) return;
+        console.warn('[Profile] 后端拉取失败:', e);
+        setError(e?.message || '加载失败');
+        setProfileData(EMPTY_PROFILE_DATA);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [studentId]);
 
   // === ECharts 雷达图配置 ===
   const radarOption = useMemo(() => {
@@ -453,9 +440,12 @@ const ProfilePage: React.FC = () => {
     >
       <h1 className="page-title">
         👤 我的学习画像
-        <span className={`profile-source-tag ${dataSource}`}>
-          {dataSource === 'tauri' ? '✅ 实时数据' : '🧪 演示数据'}
-        </span>
+        {loading && <span className="profile-source-tag">⏳ 加载中</span>}
+        {!loading && error && (
+          <span className="profile-source-tag" style={{ color: '#E55A6F' }}>
+            ⚠️ {error}
+          </span>
+        )}
       </h1>
 
       {/* Tab 切换栏 */}
@@ -586,12 +576,12 @@ const ProfilePage: React.FC = () => {
 
         {/* Tab 3: 错题本 */}
         {activeTab === 'wrongbook' && (
-          <WrongAnswerBook studentId={STUDENT_ID} />
+          <WrongAnswerBook studentId={studentId} />
         )}
 
         {/* Tab 4: 我的档案（兴趣画像） */}
         {activeTab === 'profile' && (
-          <InterestProfile studentId={STUDENT_ID} />
+          <InterestProfile studentId={studentId} />
         )}
       </motion.div>
     </motion.div>
