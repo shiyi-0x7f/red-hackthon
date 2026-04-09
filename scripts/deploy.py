@@ -30,7 +30,12 @@ DEPLOY_ITEMS = [
     ("src-tauri/migrations", "src-tauri/migrations", True),
     ("dev_docs", "dev_docs", True),
     ("AstrBot/data/plugins/astrbot-star-math-learning", "AstrBot/data/plugins/astrbot-star-math-learning", True),
+    ("AstrBot/data/cmd_config.json", "AstrBot/data/cmd_config.json", False),
+    ("AstrBot/data/knowledge_base", "AstrBot/data/knowledge_base", True),
+    ("AstrBot/astrbot/builtin_stars/builtin_commands/commands/help.py", "AstrBot/astrbot/builtin_stars/builtin_commands/commands/help.py", False),
     ("AstrBot/Dockerfile", "AstrBot/Dockerfile", False),
+    # AstrBot Dashboard 前端构建产物
+    ("AstrBot/dashboard/dist", "AstrBot/data/dist", True),
 ]
 
 # ── 打包时排除的文件 ──

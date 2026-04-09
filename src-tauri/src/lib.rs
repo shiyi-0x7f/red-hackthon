@@ -28,7 +28,7 @@ fn init_tracing() {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
-    tracing::info!("AI 学习搭子启动中...");
+    tracing::info!("学搭搭启动中...");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())

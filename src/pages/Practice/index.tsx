@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
+import confetti from 'canvas-confetti';
 import { useQuestionStore, type Question } from '../../stores/useQuestionStore';
 import { questionBankService, learningService, questionService } from '../../services';
 import { useAppStore } from '../../stores/useAppStore';
@@ -827,6 +828,17 @@ const FeedbackOverlay: React.FC<{
         ? (autopilotEnabled ? '再来一道 ✨' : '查看总结 🏆')
         : '下一题 →';
 
+  useEffect(() => {
+    if (isCorrect) {
+      confetti({
+        particleCount: 150,
+        spread: 80,
+        origin: { y: 0.65 },
+        colors: ['#FF8C42', '#00B5C8', '#FFD700', '#FF5A82', '#FFF']
+      });
+    }
+  }, [isCorrect]);
+
   return (
     <motion.div
       className={`feedback-overlay ${isCorrect ? 'correct' : 'wrong'}`}
@@ -1484,13 +1496,27 @@ const PracticePage: React.FC = () => {
 
   const question = store.currentQuestion();
   if (!question) {
+    const attemptedUnit = unitId ? (UNIT_MAP[unitId] || decodeURIComponent(unitId)) : null;
     return (
       <div className="practice-page">
         <div className="practice-loading">
-          <span className="loading-text">暂无可用题目</span>
-          <button className="submit-answer-btn" style={{ maxWidth: 200 }} onClick={() => navigate('/learn')}>
-            返回地图
-          </button>
+          <span className="loading-text" style={{ fontSize: '2rem', marginBottom: 8 }}>📭</span>
+          <span className="loading-text">
+            {attemptedUnit
+              ? `「${attemptedUnit}」暂无可用题目`
+              : '暂无可用题目'}
+          </span>
+          <span className="loading-text" style={{ fontSize: '0.85rem', opacity: 0.7, marginTop: 4 }}>
+            先去做几道练习题，再来复习吧
+          </span>
+          <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+            <button className="submit-answer-btn" style={{ maxWidth: 160 }} onClick={() => navigate('/review')}>
+              ← 返回复习
+            </button>
+            <button className="submit-answer-btn" style={{ maxWidth: 160 }} onClick={() => navigate('/learn')}>
+              去学习地图
+            </button>
+          </div>
         </div>
       </div>
     );

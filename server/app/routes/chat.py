@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 
 from ..ai.llm_client import LLMOptions, Message, get_llm_client
-from ..ai.prompts import system_persona_stream
+from ..ai.prompts import system_persona_stream, system_persona_stream_with_context
 from ..ai.safety import sanitize_output
 from ..db.connection import db_conn, get_db, rows_to_list
 from ..schemas.common import ok
@@ -55,10 +55,10 @@ async def chat_stream(
     payload: ChatMessageRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    """流式对话 - 保存 user 消息 + 流返回 assistant + 持久化 assistant
+    """流式对话 - 保存 user 消息 + RAG 注入学生画像 + 流返回 assistant
 
     时序：
-    1. 路由函数内（依赖注入 db 仍活着）：写 user 消息、读历史、读学生年级
+    1. 路由函数内（依赖注入 db 仍活着）：写 user 消息、读历史、读学生画像
     2. 返回 EventSourceResponse，starlette 开始迭代 event_generator
     3. generator 内部不再使用外层 db，写 assistant 消息时用 db_conn() 新开连接
     """
@@ -94,16 +94,29 @@ async def chat_stream(
         reversed([{"role": r["role"], "content": r["content"]} for r in history_rows])
     )
 
-    # 3. 读学生年级
-    async with db.execute(
-        "SELECT grade FROM students WHERE id = ?", (payload.student_id,)
-    ) as cur:
-        srow = await cur.fetchone()
-    grade = int(srow["grade"]) if srow else 6
+    # 3. 读学生年级 + 画像（使用 SLOTS_FOR_CHAT 插槽组合）
+    from ..services.student_profile import SLOTS_FOR_CHAT, gather_student_profile
 
-    # 构造 system + history 消息
+    profile = await gather_student_profile(db, payload.student_id, slots=SLOTS_FOR_CHAT)
+    grade = profile.grade
+
+    # ── 4. 将画像转换为 chat context ──
+    student_context = profile.to_chat_context()
+
+    # ── 5. 构造 system + history 消息 ──
+    if student_context:
+        sys_prompt = system_persona_stream_with_context(grade, student_context)
+    else:
+        sys_prompt = system_persona_stream(grade)
+
+    logger.info(
+        "Chat RAG context for %s: %d data fields",
+        payload.student_id,
+        len(student_context),
+    )
+
     messages: list[Message] = [
-        Message(role="system", content=system_persona_stream(grade))
+        Message(role="system", content=sys_prompt)
     ]
     for h in history:
         messages.append(Message(role=h["role"], content=h["content"]))
@@ -152,7 +165,7 @@ async def chat_stream(
     return EventSourceResponse(event_generator())
 
 
-@router.get("/chat/history")
+@router.get("/chat/history") 
 async def get_chat_history(
     student_id: str,
     limit: int = 50,

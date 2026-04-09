@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicnacnic/tauri-schema/refs/heads/v2/schema.json",
-  "productName": "AI学习搭子",
+  "productName": "学搭搭",
   "version": "0.1.0",
   "identifier": "com.ai-learning.app",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "AI 学习搭子",
+        "title": "学搭搭",
         "width": 1280,
         "height": 800,
         "minWidth": 1024,
