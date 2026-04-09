@@ -9,17 +9,43 @@ interface Props {
   studentId: string;
 }
 
+/** 自动包裹裸露 LaTeX 命令 */
+function autoWrapLatex(text: string): string {
+  if (text.includes('$')) return text;
+  if (!/\\[a-zA-Z]/.test(text)) return text;
+  const mathSpan = /([A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*?\\[a-zA-Z]+(?:\{[^{}]*\})*(?:[A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*\\[a-zA-Z]+(?:\{[^{}]*\})*)*[A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*)/g;
+  return text.replace(mathSpan, (m) => {
+    const trimmed = m.trim();
+    if (!trimmed || !/\\[a-zA-Z]/.test(trimmed)) return m;
+    return ` $${trimmed}$ `;
+  });
+}
+
 /** 把混合 latex 渲染成 HTML */
 function renderMixed(text: string): string {
-  let result = text.replace(/\$\$([^$]+)\$\$/g, (_m, latex) => {
-    try { return katex.renderToString(latex, { displayMode: true, throwOnError: false }); }
-    catch { return latex; }
+  let processed = autoWrapLatex(text);
+
+  // 先渲染 KaTeX，用占位符保护
+  const placeholders: string[] = [];
+  const PH = '\x00KTX';
+
+  processed = processed.replace(/\$\$([^$]+)\$\$/g, (_m, latex) => {
+    try { placeholders.push(katex.renderToString(latex, { displayMode: true, throwOnError: false })); }
+    catch { placeholders.push(latex); }
+    return `${PH}${placeholders.length - 1}\x00`;
   });
-  result = result.replace(/\$([^$]+)\$/g, (_m, latex) => {
-    try { return katex.renderToString(latex, { displayMode: false, throwOnError: false }); }
-    catch { return latex; }
+  processed = processed.replace(/\$([^$]+)\$/g, (_m, latex) => {
+    try { placeholders.push(katex.renderToString(latex, { displayMode: false, throwOnError: false })); }
+    catch { placeholders.push(latex); }
+    return `${PH}${placeholders.length - 1}\x00`;
   });
-  return result;
+
+  // 还原占位符
+  processed = processed.replace(new RegExp(`${PH.replace(/\x00/g, '\\x00')}(\\d+)\\x00`, 'g'), (_m, idx) => {
+    return placeholders[parseInt(idx, 10)] || '';
+  });
+
+  return processed;
 }
 
 /** 截取题目预览（去 latex 包裹符，限长） */

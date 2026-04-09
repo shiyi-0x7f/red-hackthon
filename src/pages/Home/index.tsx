@@ -10,7 +10,62 @@ import {
   SmileOutlined,
   AudioOutlined,
 } from '@ant-design/icons';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import '../../styles/learning-extras.css';
+
+/* ── 聊天内容中的 LaTeX + Markdown 渲染 ── */
+
+/** 自动包裹裸露 LaTeX 命令 */
+function autoWrapLatex(text: string): string {
+  if (text.includes('$')) return text;
+  if (!/\\[a-zA-Z]/.test(text)) return text;
+  const mathSpan = /([A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*?\\[a-zA-Z]+(?:\{[^{}]*\})*(?:[A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*\\[a-zA-Z]+(?:\{[^{}]*\})*)*[A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*)/g;
+  return text.replace(mathSpan, (m) => {
+    const trimmed = m.trim();
+    if (!trimmed || !/\\[a-zA-Z]/.test(trimmed)) return m;
+    return ` $${trimmed}$ `;
+  });
+}
+
+/** 将包含 LaTeX + Markdown 的文本渲染为 HTML */
+function renderChatHtml(text: string): string {
+  let processed = autoWrapLatex(text);
+
+  // 先提取公式用占位符保护
+  const placeholders: string[] = [];
+  const PH = '\x00KTX';
+
+  processed = processed.replace(/\$\$([^$]+)\$\$/g, (_m, latex) => {
+    try { placeholders.push(katex.renderToString(latex, { displayMode: true, throwOnError: false })); }
+    catch { placeholders.push(latex); }
+    return `${PH}${placeholders.length - 1}\x00`;
+  });
+  processed = processed.replace(/\$([^$]+)\$/g, (_m, latex) => {
+    try { placeholders.push(katex.renderToString(latex, { displayMode: false, throwOnError: false })); }
+    catch { placeholders.push(latex); }
+    return `${PH}${placeholders.length - 1}\x00`;
+  });
+
+  // HTML 转义
+  processed = processed
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Markdown 加粗
+  processed = processed.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+  // 段落 / 换行
+  processed = processed.split(/\n\n+/).map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('');
+
+  // 还原 KaTeX 占位符
+  processed = processed.replace(new RegExp(`${PH.replace(/\x00/g, '\\x00')}(\\d+)\\x00`, 'g'), (_m, idx) => {
+    return placeholders[parseInt(idx, 10)] || '';
+  });
+
+  return processed;
+}
 
 // === 静态预设回复 ===
 const GREETINGS: Record<string, { text: string; mood: string; moodEmoji: string }> = {
@@ -504,6 +559,8 @@ const HomePage: React.FC = () => {
                     <div className="chat-bubble-content">
                       {msg.role === 'companion' && msg.structured ? (
                         <ChatStructuredContent data={msg.structured} />
+                      ) : msg.role === 'companion' ? (
+                        <div dangerouslySetInnerHTML={{ __html: renderChatHtml(msg.content) }} />
                       ) : (
                         msg.content
                       )}

@@ -352,6 +352,34 @@
   to { transform: rotate(360deg); }
 }
 
+/* Manim 渲染中 — 标题栏徽章 */
+.manim-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 10px;
+  padding: 3px 12px;
+  background: rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  animation: manim-badge-pulse 2s ease-in-out infinite;
+}
+.manim-header-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: manim-spin 0.7s linear infinite;
+}
+@keyframes manim-badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 /* ---------- 分层提示 ---------- */
 .hint-panel {
   margin-top: 16px;

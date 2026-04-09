@@ -18,31 +18,79 @@ interface Props {
   onClose: () => void;
 }
 
+/**
+ * 自动把裸露的 LaTeX 命令（\frac / \times / \div / \pi / \cdot / \sqrt 等）
+ * 包裹成 $...$。用于 AI 生成内容不听话不写 $ 的情况。
+ *
+ * 规则：匹配"包含 \latex 命令的连续非中文段"，用 $ 包裹。
+ * 中文字符（CJK）会把数学段天然切开。
+ */
+function autoWrapLatex(text: string): string {
+  // 已经有 $ 则不动
+  if (text.includes('$')) return text;
+  // 无 LaTeX 命令则不动
+  if (!/\\[a-zA-Z]/.test(text)) return text;
+
+  // 匹配：包含至少一个 \command 的连续"数学字符 + 空格"段
+  const mathSpan = /([A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*?\\[a-zA-Z]+(?:\{[^{}]*\})*(?:[A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*\\[a-zA-Z]+(?:\{[^{}]*\})*)*[A-Za-z0-9\\{}+\-*/=.()×÷_^,\s]*)/g;
+  return text.replace(mathSpan, (m) => {
+    const trimmed = m.trim();
+    if (!trimmed) return m;
+    // 再次防御：如果一丁点 LaTeX 命令都没有，不包裹
+    if (!/\\[a-zA-Z]/.test(trimmed)) return m;
+    return ` $${trimmed}$ `;
+  });
+}
+
 /** 把 markdown-ish 文本中的 $...$ 渲染为 KaTeX */
 function renderMixed(text: string): string {
-  // 转义 < > 防止 XSS（基础防护）
-  const escaped = text
+  // 0) 自动包裹裸露 LaTeX 命令
+  let processed = autoWrapLatex(text);
+
+  // 1) 先提取所有 $...$ 和 $$...$$ 公式，用占位符替代，避免 HTML 转义破坏 LaTeX
+  const placeholders: string[] = [];
+  const PH_PREFIX = '\x00KTX';
+
+  // display math $$...$$
+  processed = processed.replace(/\$\$([^$]+)\$\$/g, (_m, latex) => {
+    try {
+      const html = katex.renderToString(latex, { displayMode: true, throwOnError: false });
+      placeholders.push(html);
+    } catch {
+      placeholders.push(latex);
+    }
+    return `${PH_PREFIX}${placeholders.length - 1}\x00`;
+  });
+
+  // inline math $...$
+  processed = processed.replace(/\$([^$]+)\$/g, (_m, latex) => {
+    try {
+      const html = katex.renderToString(latex, { displayMode: false, throwOnError: false });
+      placeholders.push(html);
+    } catch {
+      placeholders.push(latex);
+    }
+    return `${PH_PREFIX}${placeholders.length - 1}\x00`;
+  });
+
+  // 2) HTML 转义（此时公式已被占位符替代，不会被转义破坏）
+  processed = processed
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // 还原 markdown 加粗
-  let result = escaped.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  // 3) 还原 markdown 加粗
+  processed = processed.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 
-  // 段落
-  result = result.split(/\n\n+/).map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('');
+  // 4) 段落 / 换行
+  processed = processed.split(/\n\n+/).map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('');
 
-  // KaTeX
-  result = result.replace(/\$\$([^$]+)\$\$/g, (_m, latex) => {
-    try { return katex.renderToString(latex, { displayMode: true, throwOnError: false }); }
-    catch { return latex; }
-  });
-  result = result.replace(/\$([^$]+)\$/g, (_m, latex) => {
-    try { return katex.renderToString(latex, { displayMode: false, throwOnError: false }); }
-    catch { return latex; }
+  // 5) 还原 KaTeX 占位符
+  processed = processed.replace(new RegExp(`${PH_PREFIX.replace(/\x00/g, '\\x00')}(\\d+)\\x00`, 'g'), (_m, idx) => {
+    return placeholders[parseInt(idx, 10)] || '';
   });
 
-  return result;
+  return processed;
 }
 
 const ExplanationPanel: React.FC<Props> = ({ open, questionId, studentId, sessionId, onClose }) => {
