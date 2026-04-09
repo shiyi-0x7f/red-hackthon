@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import ParentRealtimePanel from '../../components/learning/ParentRealtimePanel';
 import InterestProfile from '../../components/learning/InterestProfile';
+import { useAppStore } from '../../stores/useAppStore';
 import '../../styles/learning-extras.css';
 
 const ParentPage: React.FC = () => {
+  const studentId = useAppStore((s) => s.currentStudentId);
   const [isVerified, setIsVerified] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -67,10 +69,10 @@ const ParentPage: React.FC = () => {
       </div>
 
       {/* 兴趣画像（readonly，让家长了解孩子兴趣背景）*/}
-      <InterestProfile studentId="default-student" readonly />
+      <InterestProfile studentId={studentId} readonly />
 
       {/* 6 层实时画像（含敏感行为/状态指标，仅家长可见）*/}
-      <ParentRealtimePanel studentId="default-student" />
+      <ParentRealtimePanel studentId={studentId} />
 
       {/* 退出 */}
       <div className="parent-footer">

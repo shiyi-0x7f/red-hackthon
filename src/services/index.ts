@@ -1,52 +1,59 @@
 /**
  * 后端调用统一封装层
  *
- * 只有两种 backend mode：
- * - 'tauri' — 运行在 Tauri 桌面端，直接调用 Rust Command
- * - 'http'  — 其他所有场景（浏览器），走独立 FastAPI 学习服务器
+ * 统一走 HTTP 模式 — 连接独立 FastAPI 学习服务器。
+ * Rust / Tauri 对接代码已全部移除，AI 和业务逻辑全部由 Python 服务端处理。
  *
- * 浏览器访问时自动启用 http 模式 + 默认 sk + 同源相对路径；
  * 每个浏览器随机分配独立的 student_id，多人访问互不干扰。
  */
 
 import type { Question, QuizMode } from '../stores/useQuestionStore';
 
-// -------- backend mode 检测 --------
-type BackendMode = 'tauri' | 'http';
-
 /**
  * Server 的开发模式默认 API Key。
  * server/app/routes/_deps.py 里约定：当 LEARNING_API_KEY 为该值时跳过校验，
- * 相当于"放行模式"。用作前端默认 sk 可以保证浏览器首次访问立刻能工作。
+ * 相当于"放行模式"。用作前端默认 sk 可以保证首次访问立刻能工作。
  */
 export const DEFAULT_HTTP_API_KEY = 'sk-ai-learning-change-me';
 
-const isTauri = () =>
-  typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window);
+/** 统一使用 HTTP 后端模式（Rust Command 对接代码已全部移除） */
+export const getBackendMode = (): 'http' => 'http';
 
-export const getBackendMode = (): BackendMode => {
-  if (typeof window === 'undefined') return 'http';
-  const override = window.localStorage.getItem('backend_mode') as BackendMode | null;
-  if (override === 'tauri' || override === 'http') return override;
-  // 只有两种可能：Tauri 应用窗口 or 其他（浏览器）
-  return isTauri() ? 'tauri' : 'http';
-};
+/**
+ * 检测当前是否运行在 Tauri 桌面壳中。
+ *
+ * 仅用于选择 HTTP backend 的默认 base URL：Tauri WebView 没有同源 server，
+ * 必须指向远程服务器；浏览器访问部署域名时用同源相对路径。
+ *
+ * 所有 API 调用仍然统一走 HTTP（不再有 Rust invoke 双路径）。
+ */
+const isTauri = (): boolean =>
+  typeof window !== 'undefined' &&
+  ('__TAURI__' in window || '__TAURI_INTERNALS__' in window);
 
+/** Tauri 桌面壳的默认远程 server 地址 */
+export const TAURI_DEFAULT_BACKEND = 'http://learn.11xy.cn';
+
+/**
+ * 获取 HTTP 后端 base URL
+ *
+ * 优先级：
+ * 1. localStorage 里的 `http_backend_base`（Settings 页可手动改）
+ * 2. 构建时的 `VITE_HTTP_BACKEND` env var
+ * 3. Tauri 桌面端：`TAURI_DEFAULT_BACKEND`（远程 server）
+ * 4. 浏览器 Web 端：空字符串（same-origin 相对路径，B1 同域部署）
+ *
+ * 为什么 Web 端默认空字符串：
+ *   fetch('/api/v1/...') 会用当前页面的 origin（比如 https://learn.11xy.cn），
+ *   用户从 HTTPS 访问时不会触发 mixed-content 错误。
+ */
 export const getHttpBase = (): string => {
   if (typeof window === 'undefined') return '';
-  // 用户在 Settings 页手动设置 > 构建时 env 注入 > 空串（= same-origin 相对路径）
-  //
-  // 空串为默认意味着生产部署里如果前端和 server 同源（B1 方案 FastAPI StaticFiles
-  // 挂载 /dist，或 nginx 反向代理把 /api 转给 server），fetch('/api/v1/...') 就能
-  // 直接工作——无需配置。
-  //
-  // 跨源部署（前端在 Cloudflare Pages / Vercel，后端在另一个域名）：
-  //   构建时设 VITE_HTTP_BACKEND=https://api.your-domain.com
-  //   或用户在 Settings 页手动填写完整地址
   const stored = window.localStorage.getItem('http_backend_base');
   if (stored !== null) return stored.replace(/\/$/, '');
   const fromEnv = (import.meta as any).env?.VITE_HTTP_BACKEND as string | undefined;
   if (fromEnv) return fromEnv.replace(/\/$/, '');
+  if (isTauri()) return TAURI_DEFAULT_BACKEND;
   return '';
 };
 
@@ -72,7 +79,7 @@ function generateStudentName(): string {
   return `同学${n}`;
 }
 
-/** 生成一个稳定的学生 id（前缀 web- 便于和 Tauri 端区分） */
+/** 生成一个稳定的学生 id（前缀 web- 便于识别来源） */
 function generateStudentId(): string {
   // 使用 crypto.randomUUID 在所有现代浏览器可用
   let uuid: string;
@@ -137,16 +144,13 @@ async function ensureStudentExists(studentId: string, studentName: string): Prom
       if (data?.code === 0 && data.data) return; // 已存在
     }
 
-    // 不存在 → 创建
+    // 不存在 → 创建（传递客户端生成的 id，避免 server 生成不同 id 导致不一致）
     const createUrl = `${getHttpBase()}/api/v1/students`;
     await fetch(createUrl, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        // NOTE: server POST /students 会自动生成 id，这里传递的是 name/grade
-        // 但我们希望 server 用我们指定的 id。当前 server 代码里 create_student 不支持
-        // 客户端指定 id —— 见 routes/student.py。为了兼容现状，这里先忽略 id 参数，
-        // 让 server 生成后返回，前端把 server 返回的 id 存回 localStorage。
+        id: studentId,   // ← 关键：把前端生成的 web-xxxx 传给 server
         name: studentName,
         grade: 6,
       }),
@@ -155,9 +159,16 @@ async function ensureStudentExists(studentId: string, studentName: string): Prom
       const data = await r.json();
       const serverId = data?.data?.id;
       if (serverId && serverId !== studentId) {
-        // server 生成的 id 覆盖本地随机 id
+        // 极端情况：server 没接受我们的 id（旧版 server），覆盖本地
         window.localStorage.setItem(STUDENT_ID_STORAGE_KEY, serverId);
+        // 同步更新 zustand store，避免使用过期的 studentId
+        try {
+          const { useAppStore } = await import('../stores/useAppStore');
+          useAppStore.getState().setCurrentStudent(serverId, studentName, 6);
+        } catch { /* 首次加载时 store 可能还未就绪 */ }
         console.info(`[auto-init] server 分配学生 id: ${serverId}（替换本地 ${studentId}）`);
+      } else {
+        console.info(`[auto-init] 学生已在 server 创建: ${serverId || studentId}`);
       }
     });
   } catch (e) {
@@ -166,31 +177,34 @@ async function ensureStudentExists(studentId: string, studentName: string): Prom
 }
 
 /**
- * 浏览器首次打开时自动完成的初始化工作。
+ * 首次打开时自动完成的初始化工作。
  *
  * 做的事：
- * 1. 非 Tauri 场景：如果 localStorage 没 backend_mode，写入 http / 空 base / 默认 sk
- *    无论 dev / prod 都做，浏览器里就是要走 server
+ * 1. 确保 localStorage 有 http 模式和默认 sk
  * 2. 生成并持久化每浏览器独立的学生 id（避免多人访问互相污染数据）
  * 3. 触发 ensureStudentExists 让 server 端提前建好学生行（异步，不阻塞渲染）
  *
- * 在 main.tsx 调一次即可。Tauri 模式下只做学生 id 生成。
+ * 在 main.tsx 调一次即可。
  */
 export function autoInitBrowserSettings(): void {
   if (typeof window === 'undefined') return;
 
-  // 1) 浏览器模式下（非 Tauri），自动启用 http + 填入默认 sk
-  if (!isTauri()) {
-    if (window.localStorage.getItem('backend_mode') === null) {
-      window.localStorage.setItem('backend_mode', 'http');
-      console.info('[auto-init] 浏览器访问 → 启用 HTTP same-origin 模式');
+  // 1) 统一启用 HTTP 模式 + 填入默认 sk
+  if (window.localStorage.getItem('backend_mode') === null) {
+    window.localStorage.setItem('backend_mode', 'http');
+    console.info('[auto-init] 启用 HTTP 模式');
+  }
+  if (window.localStorage.getItem('http_backend_base') === null) {
+    // Tauri 桌面壳 → 远程 server（WebView 没有同源 server）
+    // 浏览器 Web  → 空串同源相对路径（B1 同域部署）
+    const defaultBase = isTauri() ? TAURI_DEFAULT_BACKEND : '';
+    window.localStorage.setItem('http_backend_base', defaultBase);
+    if (defaultBase) {
+      console.info(`[auto-init] Tauri 桌面端默认后端: ${defaultBase}`);
     }
-    if (window.localStorage.getItem('http_backend_base') === null) {
-      window.localStorage.setItem('http_backend_base', ''); // 同源
-    }
-    if (window.localStorage.getItem('http_backend_key') === null) {
-      window.localStorage.setItem('http_backend_key', DEFAULT_HTTP_API_KEY);
-    }
+  }
+  if (window.localStorage.getItem('http_backend_key') === null) {
+    window.localStorage.setItem('http_backend_key', DEFAULT_HTTP_API_KEY);
   }
 
   // 2) 分配/读取学生 id 和名字
@@ -198,19 +212,22 @@ export function autoInitBrowserSettings(): void {
   const studentName = getStudentName();
   console.info(`[auto-init] 学生身份: ${studentName} (${studentId})`);
 
-  // 3) 异步确保 server 端有这个学生（http 模式才跑）
+  // 3) 异步确保 server 端有这个学生
   void ensureStudentExists(studentId, studentName);
 }
 
 /**
- * Tauri Command → HTTP (method, path) 映射
- * 只覆盖主要业务命令。未命中的命令在 http 模式下会抛错。
+ * 前端 invoke 命令 → HTTP (method, path, body) 映射
+ *
+ * body 字段的三态语义：
+ * - `undefined`       : 不发送 body（GET / DELETE / 某些无 body 的 POST）
+ * - `true`            : 自动把 args 走 toSnakeCase 后作为 body（camelCase 参数默认路径）
+ * - `object`/`Record` : 显式 body 对象，跳过 toSnakeCase，用于语义不对齐的字段（
+ *                       例如 `answer` → `student_answer`、`hintsUsed` → `hint_used`）
  */
 type HttpRoute =
-  | { method: 'GET'; path: string; query?: string[] }
-  | { method: 'POST'; path: string; body?: boolean }
-  | { method: 'PUT'; path: string; body?: boolean }
-  | { method: 'DELETE'; path: string };
+  | { method: 'GET' | 'DELETE'; path: string }
+  | { method: 'POST' | 'PUT'; path: string; body?: true | Record<string, unknown> };
 
 const HTTP_ROUTE_MAP: Record<string, (args: any) => HttpRoute> = {
   // 学生
@@ -224,17 +241,70 @@ const HTTP_ROUTE_MAP: Record<string, (args: any) => HttpRoute> = {
 
   // 题库 / 出题
   get_question_bank_overview: () => ({ method: 'GET', path: '/api/v1/questions/overview' }),
-  generate_quiz: () => ({ method: 'POST', path: '/api/v1/questions/quiz', body: true }),
-  generate_ai_question: () => ({ method: 'POST', path: '/api/v1/questions/ai', body: true }),
+  // 显式 body：把 mode 设为 'auto'，server 再按学生答题总数切换 diagnose/emerging/adaptive
+  // 避免 Pydantic 默认 'adaptive' 对新用户强行走自适应模式
+  generate_quiz: (a) => ({
+    method: 'POST',
+    path: '/api/v1/questions/quiz',
+    body: {
+      student_id: a.studentId,
+      mode: a.unit ? 'unit' : 'auto',
+      unit: a.unit ?? null,
+      count: a.count ?? 5,
+      knowledge_ids: a.knowledgeIds ?? [],
+    },
+  }),
+  generate_ai_question: (a) => ({
+    method: 'POST',
+    path: '/api/v1/questions/ai',
+    body: {
+      student_id: a.studentId,
+      unit: a.unit,
+      difficulty: a.difficulty ?? 2,
+      weak_topics: a.weakTopics ?? [],
+      use_interest: a.useInterest ?? true,
+    },
+  }),
 
   // 学习会话
-  start_session: () => ({ method: 'POST', path: '/api/v1/sessions', body: true }),
-  submit_answer: (a) => ({ method: 'POST', path: `/api/v1/sessions/${a.sessionId}/answers`, body: true }),
-  end_session: (a) => ({ method: 'POST', path: `/api/v1/sessions/${a.sessionId}/end`, body: true }),
-  generate_session_summary: (a) => ({ method: 'POST', path: `/api/v1/sessions/${a.sessionId}/summary` }),
+  start_session: (a) => ({
+    method: 'POST',
+    path: '/api/v1/sessions',
+    body: { student_id: a.studentId },
+  }),
+  // 显式 body：answer → student_answer，hintsUsed → hint_used（单复数不同！）
+  submit_answer: (a) => ({
+    method: 'POST',
+    path: `/api/v1/sessions/${a.sessionId}/answers`,
+    body: {
+      session_id: a.sessionId,
+      question_id: a.questionId,
+      student_answer: a.answer,
+      time_spent_secs: a.timeSpentSecs ?? 0,
+      hint_used: a.hintsUsed ?? 0,
+      was_skipped: a.wasSkipped ?? false,
+    },
+  }),
+  end_session: (a) => ({
+    method: 'POST',
+    path: `/api/v1/sessions/${a.sessionId}/end`,
+    body: { reason: a.reason ?? 'user_quit' },
+  }),
+  generate_session_summary: (a) => ({
+    method: 'POST',
+    path: `/api/v1/sessions/${a.sessionId}/summary`,
+  }),
 
   // 讲解 / 提示
-  get_layered_hint: () => ({ method: 'POST', path: '/api/v1/hints', body: true }),
+  get_layered_hint: (a) => ({
+    method: 'POST',
+    path: '/api/v1/hints',
+    body: {
+      question_id: a.questionId,
+      level: a.level,
+      student_id: a.studentId,
+    },
+  }),
 
   // 学生模型
   get_student_profile: (a) => ({ method: 'GET', path: `/api/v1/students/${a.studentId}/profile` }),
@@ -245,22 +315,57 @@ const HTTP_ROUTE_MAP: Record<string, (args: any) => HttpRoute> = {
   get_realtime_profile: (a) => ({ method: 'GET', path: `/api/v1/students/${a.studentId}/realtime` }),
 
   // 决策 / 节奏
-  get_next_action: () => ({ method: 'POST', path: '/api/v1/decision/next', body: true }),
+  get_next_action: (a) => ({
+    method: 'POST',
+    path: '/api/v1/decision/next',
+    body: { student_id: a.studentId, session_id: a.sessionId ?? null },
+  }),
   get_pacing_status: (a) => ({ method: 'GET', path: `/api/v1/sessions/${a.sessionId}/pacing` }),
 
   // 对话
-  get_chat_history: (a) => ({ method: 'GET', path: `/api/v1/chat/history?student_id=${a.studentId}` }),
+  get_chat_history: (a) => ({
+    method: 'GET',
+    path: `/api/v1/chat/history?student_id=${encodeURIComponent(a.studentId)}${a.limit ? `&limit=${a.limit}` : ''}`,
+  }),
 
   // 兴趣 / 背景
   list_interests: (a) => ({ method: 'GET', path: `/api/v1/students/${a.studentId}/interests` }),
-  add_interest: (a) => ({ method: 'POST', path: `/api/v1/students/${a.studentId}/interests`, body: true }),
-  delete_interest: (a) => ({ method: 'DELETE', path: `/api/v1/interests/${a.interestId}` }),
-  extract_interests_from_text: () => ({ method: 'POST', path: '/api/v1/interests/extract', body: true }),
+  add_interest: (a) => ({
+    method: 'POST',
+    path: `/api/v1/students/${a.studentId}/interests`,
+    body: {
+      category: a.category,
+      name: a.name,
+      affinity: a.affinity ?? 0.8,
+      notes: a.notes ?? null,
+      source: 'manual',
+    },
+  }),
+  delete_interest: (a) => ({ method: 'DELETE', path: `/api/v1/interests/${a.id}` }),
+  extract_interests_from_text: (a) => ({
+    method: 'POST',
+    path: '/api/v1/interests/extract',
+    body: { text: a.text, student_id: a.studentId },
+  }),
   get_student_background: (a) => ({ method: 'GET', path: `/api/v1/students/${a.studentId}/background` }),
-  update_student_background: (a) => ({ method: 'PUT', path: `/api/v1/students/${a.studentId}/background`, body: true }),
+  update_student_background: (a) => ({
+    method: 'PUT',
+    path: `/api/v1/students/${a.studentId}/background`,
+    body: {
+      student_id: a.studentId,
+      // 前端的旧字段名映射到 server 的精简字段名
+      hobbies: a.hobbySummary ?? a.hobbies ?? '',
+      family: a.familyNotes ?? a.family ?? '',
+      notes: a.notes ?? a.dream ?? '',
+    },
+  }),
 
   // 家长
-  verify_parent_password: () => ({ method: 'POST', path: '/api/v1/parent/login', body: true }),
+  verify_parent_password: (a) => ({
+    method: 'POST',
+    path: '/api/v1/parent/login',
+    body: { password: a.password },
+  }),
   get_learning_overview: (a) => ({
     method: 'GET',
     path: `/api/v1/parent/students/${a.studentId}/overview?range=${a.range ?? 'week'}`,
@@ -268,13 +373,44 @@ const HTTP_ROUTE_MAP: Record<string, (args: any) => HttpRoute> = {
 
   // 设置
   get_api_settings: () => ({ method: 'GET', path: '/api/v1/settings/api' }),
-  update_api_settings: () => ({ method: 'PUT', path: '/api/v1/settings/api', body: true }),
+  update_api_settings: (a) => ({
+    method: 'PUT',
+    path: '/api/v1/settings/api',
+    body: {
+      api_key: a.apiKey ?? null,
+      default_model: a.model ?? a.defaultModel ?? null,
+    },
+  }),
+  // 别名：Settings 页调用 save_api_key，映射到同一 PUT /api
+  save_api_key: (a) => ({
+    method: 'PUT',
+    path: '/api/v1/settings/api',
+    body: {
+      api_key: a.apiKey ?? null,
+      default_model: a.model ?? null,
+    },
+  }),
 };
+
+/** camelCase → snake_case 转换（递归处理嵌套对象和数组） */
+function toSnakeCase(obj: unknown): unknown {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) return obj.map(toSnakeCase);
+  if (typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+      result[snakeKey] = toSnakeCase(value);
+    }
+    return result;
+  }
+  return obj;
+}
 
 async function httpInvoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   const builder = HTTP_ROUTE_MAP[command];
   if (!builder) {
-    throw new Error(`HTTP mode: command '${command}' has no route mapping yet`);
+    throw new Error(`HTTP mode: command '${command}' has no route mapping`);
   }
   const route = builder(args ?? {});
   const base = getHttpBase();
@@ -287,8 +423,17 @@ async function httpInvoke<T>(command: string, args?: Record<string, unknown>): P
       ...(getHttpApiKey() ? { Authorization: `Bearer ${getHttpApiKey()}` } : {}),
     },
   };
-  if ('body' in route && route.body && args) {
-    init.body = JSON.stringify(args);
+
+  // body 三态：
+  //   undefined      → 不发送
+  //   true           → 自动 toSnakeCase(args)
+  //   Record<string> → 显式对象，跳过自动转换（用于 field 名不是简单 camel↔snake 的场景）
+  if ('body' in route && route.body !== undefined) {
+    if (route.body === true) {
+      init.body = JSON.stringify(toSnakeCase(args ?? {}));
+    } else {
+      init.body = JSON.stringify(route.body);
+    }
   }
 
   const resp = await fetch(url, init);
@@ -303,12 +448,10 @@ async function httpInvoke<T>(command: string, args?: Record<string, unknown>): P
   return envelope.data;
 }
 
+/**
+ * 统一后端调用入口 — 只走 HTTP，不再对接 Rust / Tauri Command
+ */
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  const mode = getBackendMode();
-  if (mode === 'tauri') {
-    const { invoke: tauriInvoke } = await import('@tauri-apps/api/core');
-    return tauriInvoke<T>(command, args);
-  }
   return httpInvoke<T>(command, args);
 }
 
@@ -354,7 +497,7 @@ async function* fetchSSE(
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
 
       // SSE 事件以 "\n\n" 分隔
       let sepIdx: number;
@@ -383,8 +526,7 @@ async function* fetchSSE(
 /**
  * HTTP mode 下 explain/chat 的流式订阅注册表
  *
- * 现有 API 把「start」和「subscribe」拆成两步（源于 Tauri 全局事件总线的设计）。
- * HTTP 模式下我们需要把两步粘起来：subscribe() 先把 handlers 挂进 registry，
+ * API 把「start」和「subscribe」拆成两步：subscribe() 先把 handlers 挂进 registry，
  * start() 真正发起 fetch 并从 registry 里找到 handlers 分发事件。
  */
 interface StreamHandlers {
@@ -453,15 +595,12 @@ export const questionService = {
   generateQuiz: (studentId: string, knowledgeIds: string[], count?: number) =>
     invoke('generate_quiz', { studentId, knowledgeIds, count }),
 
-  /** AI 动态出题（需要 API Key） */
+  /** AI 动态出题 */
   generateAiQuestion: async (
     studentId: string,
     unit: string,
     difficulty?: number,
   ): Promise<AIQuestion> => {
-    if (!isTauri()) {
-      throw new Error('AI 出题仅在 Tauri 环境可用');
-    }
     return invoke<AIQuestion>('generate_ai_question', { studentId, unit, difficulty });
   },
 };
@@ -513,24 +652,10 @@ export const learningService = {
 
   /** 清除学生所有学习数据（删库，保留学生 / 知识点 / 题目静态表） */
   clearStudentData: async (studentId: string): Promise<{ total_deleted: number } | null> => {
-    if (!isTauri()) return null;
     return invoke('clear_student_data', { studentId });
   },
 
   generateSessionSummary: async (sessionId: string): Promise<SessionSummary> => {
-    if (!isTauri()) {
-      return {
-        headline: '今天做得很棒！',
-        highlights: ['完成了 5 道练习题', '保持了稳定的节奏'],
-        to_review: ['分数除法', '比与百分数'],
-        encouragement: '我们一起期待下次的进步！',
-        total_questions: 5,
-        correct_count: 4,
-        accuracy_pct: 80,
-        duration_minutes: 5,
-        from_llm: false,
-      };
-    }
     return invoke<SessionSummary>('generate_session_summary', { sessionId });
   },
 };
@@ -560,69 +685,60 @@ export const explainService = {
   start: async (
     requestId: string,
     questionId: string,
-    studentId?: string,
-    sessionId?: string,
+    _studentId?: string,
+    _sessionId?: string,
   ) => {
-    const mode = getBackendMode();
-    if (mode === 'tauri') {
-      return invoke('generate_explanation_stream', {
-        requestId, questionId, studentId, sessionId,
-      });
+    // HTTP 模式：发起 fetch 并把事件分发给已注册的 handlers
+    const entry = httpStreamRegistry.get(requestId);
+    if (!entry) {
+      throw new Error(`explainService.start: requestId=${requestId} 未先 subscribe`);
     }
-    if (mode === 'http') {
-      // HTTP 模式下真正发起 fetch 并把事件分发给已注册的 handlers
-      const entry = httpStreamRegistry.get(requestId);
-      if (!entry) {
-        throw new Error(`explainService.start: requestId=${requestId} 未先 subscribe`);
-      }
-      const url =
-        `${getHttpBase()}/api/v1/explain/stream?question_id=${encodeURIComponent(questionId)}`;
-      const headers: Record<string, string> = {};
-      const key = getHttpApiKey();
-      if (key) headers.Authorization = `Bearer ${key}`;
+    const url =
+      `${getHttpBase()}/api/v1/explain/stream?question_id=${encodeURIComponent(questionId)}`;
+    const headers: Record<string, string> = {};
+    const key = getHttpApiKey();
+    if (key) headers.Authorization = `Bearer ${key}`;
 
-      // 后台异步跑，不 await（和 Tauri 的行为一致：start 返回后流仍在推送）
-      (async () => {
-        let fullText = '';
-        let visualSpec: { type: string } & Record<string, unknown> = { type: 'none' };
-        try {
-          for await (const ev of fetchSSE(url, {
-            method: 'GET',
-            headers,
-            abortSignal: entry.abort.signal,
-          })) {
-            if (ev.event === 'text') {
-              fullText += ev.data;
-              entry.onChunk?.(ev.data);
-            } else if (ev.event === 'visual') {
-              try {
-                const parsed = JSON.parse(ev.data);
-                visualSpec = { type: 'jsxgraph', ...parsed };
-              } catch {
-                // 解析失败就当没 visual
-              }
-            } else if (ev.event === 'error') {
-              entry.onError?.(new Error(ev.data));
-              return;
-            } else if (ev.event === 'done') {
-              break;
+    // 后台异步跑，不 await
+    (async () => {
+      let fullText = '';
+      let visualSpec: { type: string } & Record<string, unknown> = { type: 'none' };
+      try {
+        for await (const ev of fetchSSE(url, {
+          method: 'GET',
+          headers,
+          abortSignal: entry.abort.signal,
+        })) {
+          if (ev.event === 'text') {
+            fullText += ev.data;
+            entry.onChunk?.(ev.data);
+          } else if (ev.event === 'visual') {
+            try {
+              const parsed = JSON.parse(ev.data);
+              visualSpec = { type: 'jsxgraph', ...parsed };
+            } catch {
+              // 解析失败就当没 visual
             }
+          } else if (ev.event === 'error') {
+            entry.onError?.(new Error(ev.data));
+            return;
+          } else if (ev.event === 'done') {
+            break;
           }
-          entry.onDone?.({
-            request_id: requestId,
-            full_text: fullText,
-            visual_spec: visualSpec,
-            from_cache: false,
-          } as ExplanationDonePayload);
-        } catch (e) {
-          if ((e as Error).name === 'AbortError') return;
-          entry.onError?.(e as Error);
-        } finally {
-          httpStreamRegistry.delete(requestId);
         }
-      })();
-      return;
-    }
+        entry.onDone?.({
+          request_id: requestId,
+          full_text: fullText,
+          visual_spec: visualSpec,
+          from_cache: false,
+        } as ExplanationDonePayload);
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return;
+        entry.onError?.(e as Error);
+      } finally {
+        httpStreamRegistry.delete(requestId);
+      }
+    })();
   },
 
   /**
@@ -634,29 +750,11 @@ export const explainService = {
     onChunk: (delta: string) => void,
     onDone: (payload: ExplanationDonePayload) => void,
   ): Promise<{ removeChunk: () => void; removeDone: () => void }> {
-    const mode = getBackendMode();
-    if (mode === 'http') {
-      return httpStreamSubscribe(
-        requestId,
-        onChunk,
-        (p: any) => onDone(p as ExplanationDonePayload),
-      );
-    }
-    // tauri 模式
-    const { listen } = await import('@tauri-apps/api/event');
-    const unlistenChunk = await listen<{ request_id: string; delta: string }>(
-      'explanation:chunk',
-      (e) => {
-        if (e.payload.request_id === requestId) onChunk(e.payload.delta);
-      },
+    return httpStreamSubscribe(
+      requestId,
+      onChunk,
+      (p: any) => onDone(p as ExplanationDonePayload),
     );
-    const unlistenDone = await listen<ExplanationDonePayload>(
-      'explanation:done',
-      (e) => {
-        if (e.payload.request_id === requestId) onDone(e.payload);
-      },
-    );
-    return { removeChunk: unlistenChunk, removeDone: unlistenDone };
   },
 };
 
@@ -801,21 +899,10 @@ export const pacingService = {
 };
 
 // === 对话 ===
-/** 流式对话事件 payload（与后端 `chat:done` 对应）
- *
- * 聊天次数 / 时长限制相关字段保留可选以向后兼容历史 Tauri 后端，但浏览器 http 模式下
- * 不再设置这些字段，前端 UI 也不展示限制提示。
- */
+/** 流式对话完成事件 payload */
 export interface ChatStreamDonePayload {
   request_id: string;
   full_text: string;
-  /** @deprecated HTTP 模式不再使用，保留兼容 Tauri 后端 */
-  chat_remaining?: number;
-  is_limited: boolean;
-  limit_reason?: string;
-  session_secs?: number;
-  session_max_secs?: number;
-  cooldown_remaining_secs?: number;
   needs_escalation: boolean;
   safety_violations?: number;
   from_llm?: boolean;
@@ -845,81 +932,68 @@ export const chatService = {
     studentId: string,
     message: string,
   ): Promise<ChatStreamDonePayload> => {
-    const mode = getBackendMode();
+    // HTTP 模式：POST /api/v1/chat/stream 并读 SSE
+    const entry = httpStreamRegistry.get(requestId);
+    // 如果调用顺序是 send 先于 subscribe，也兜底创建 entry
+    const target: StreamHandlers = entry ?? (() => {
+      const fresh: StreamHandlers = { abort: new AbortController() };
+      httpStreamRegistry.set(requestId, fresh);
+      return fresh;
+    })();
 
-    if (mode === 'tauri') {
-      return invoke<ChatStreamDonePayload>('send_chat_message_stream', {
-        requestId, studentId, message,
-      });
+    const url = `${getHttpBase()}/api/v1/chat/stream`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const key = getHttpApiKey();
+    if (key) headers.Authorization = `Bearer ${key}`;
+
+    let fullText = '';
+    let errored: Error | null = null;
+    try {
+      for await (const ev of fetchSSE(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          student_id: studentId,
+          content: message,
+          context_type: 'casual',
+        }),
+        abortSignal: target.abort.signal,
+      })) {
+        if (ev.event === 'chunk') {
+          fullText += ev.data;
+          target.onChunk?.(ev.data);
+        } else if (ev.event === 'error') {
+          errored = new Error(ev.data);
+          break;
+        } else if (ev.event === 'done') {
+          break;
+        }
+      }
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
+        errored = e as Error;
+      }
     }
 
-    if (mode === 'http') {
-      // HTTP 模式：POST /api/v1/chat/stream 并读 SSE，事件分发给 registry 里的 handlers
-      const entry = httpStreamRegistry.get(requestId);
-      // 如果调用顺序是 send 先于 subscribe，也兜底创建 entry
-      const target: StreamHandlers = entry ?? (() => {
-        const fresh: StreamHandlers = { abort: new AbortController() };
-        httpStreamRegistry.set(requestId, fresh);
-        return fresh;
-      })();
+    // 构造 payload
+    const payload: ChatStreamDonePayload = {
+      request_id: requestId,
+      full_text: fullText,
+      needs_escalation: false,
+      from_llm: !errored,
+    };
 
-      const url = `${getHttpBase()}/api/v1/chat/stream`;
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      const key = getHttpApiKey();
-      if (key) headers.Authorization = `Bearer ${key}`;
-
-      let fullText = '';
-      let errored: Error | null = null;
-      try {
-        for await (const ev of fetchSSE(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            student_id: studentId,
-            content: message,
-            context_type: 'casual',
-          }),
-          abortSignal: target.abort.signal,
-        })) {
-          if (ev.event === 'chunk') {
-            fullText += ev.data;
-            target.onChunk?.(ev.data);
-          } else if (ev.event === 'error') {
-            errored = new Error(ev.data);
-            break;
-          } else if (ev.event === 'done') {
-            break;
-          }
-        }
-      } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
-          errored = e as Error;
-        }
-      }
-
-      // 构造 payload — 不再含 chat_remaining/limit 等限制字段
-      const payload: ChatStreamDonePayload = {
-        request_id: requestId,
-        full_text: fullText,
-        is_limited: false,
-        needs_escalation: false,
-        from_llm: !errored,
-      };
-
-      if (errored) {
-        target.onError?.(errored);
-        httpStreamRegistry.delete(requestId);
-        throw errored;
-      }
-
-      target.onDone?.(payload);
+    if (errored) {
+      target.onError?.(errored);
       httpStreamRegistry.delete(requestId);
-      return payload;
+      throw errored;
     }
 
-    throw new Error('sendMessageStream: unknown backend mode');
+    target.onDone?.(payload);
+    httpStreamRegistry.delete(requestId);
+    return payload;
   },
 
   /**
@@ -932,24 +1006,6 @@ export const chatService = {
     onChunk: (delta: string) => void,
     onDone: (payload: ChatStreamDonePayload) => void,
   ): Promise<{ removeChunk: () => void; removeDone: () => void }> {
-    const mode = getBackendMode();
-    if (mode === 'tauri') {
-      const { listen } = await import('@tauri-apps/api/event');
-      const unlistenChunk = await listen<{ request_id: string; delta: string }>(
-        'chat:chunk',
-        (e) => {
-          if (e.payload.request_id === requestId) onChunk(e.payload.delta);
-        },
-      );
-      const unlistenDone = await listen<ChatStreamDonePayload>(
-        'chat:done',
-        (e) => {
-          if (e.payload.request_id === requestId) onDone(e.payload);
-        },
-      );
-      return { removeChunk: unlistenChunk, removeDone: unlistenDone };
-    }
-    // http 模式
     return httpStreamSubscribe(
       requestId,
       onChunk,
@@ -1044,36 +1100,18 @@ export const INTEREST_CATEGORIES: Array<{ key: string; label: string; emoji: str
 
 // === 设置 ===
 export const settingsService = {
-  saveApiKey: (apiKey: string, model?: string) =>
-    invoke('save_api_key', { apiKey, model }),
-
   getSettings: () =>
-    invoke('get_settings'),
+    invoke('get_api_settings'),
 };
 
 // =============================================
-// 题库服务 — 纯 HTTP / Tauri
+// 题库服务 — 纯 HTTP
 // =============================================
 
 export interface QuizResult {
   mode: QuizMode;
   total: number;
   questions: Question[];
-}
-
-/**
- * @deprecated 浏览器 mock 答题记录存储已移除，所有答题记录由 server 端
- *   `/api/v1/sessions/{id}/answers` 持久化到 SQLite。此函数保留为 no-op
- *   以兼容未来可能还在使用它的组件。
- */
-export function saveMockAnswerRecord(_record: {
-  questionId: string;
-  isCorrect: boolean;
-  timeSpentSecs: number;
-  knowledgePoint?: string;
-  unit?: string;
-}): void {
-  // no-op — server 持久化替代本地 mock
 }
 
 export const questionBankService = {

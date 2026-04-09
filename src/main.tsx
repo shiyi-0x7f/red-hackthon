@@ -7,8 +7,7 @@ import { autoInitBrowserSettings } from './services';
 import './styles/index.css';
 import './styles/pages.css';
 
-// 浏览器打开时自动：启用 HTTP 模式、填入默认 sk、分配独立学生 id
-// Tauri 应用启动时只做学生 id 生成
+// 打开页面时自动：启用 HTTP 模式、填入默认 sk、分配独立学生 id（每浏览器一个）
 autoInitBrowserSettings();
 
 const antTheme = {

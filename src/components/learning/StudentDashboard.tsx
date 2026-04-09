@@ -49,9 +49,9 @@ const StudentDashboard: React.FC<Props> = ({ studentId, refreshKey }) => {
     );
   }
 
-  const k = profile.knowledge_layer;
-  const b = profile.behavior_layer;
-  const sess = profile.session_layer;
+  const k = profile.knowledge_layer ?? { weak_topics: [], overall_mastery: 0 };
+  const b = profile.behavior_layer ?? { sample_count: 0, avg_response_time: 0 };
+  const sess = profile.session_layer ?? { duration_secs: 0, total_questions: 0 };
 
   return (
     <aside className="student-dashboard">

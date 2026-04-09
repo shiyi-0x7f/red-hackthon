@@ -6,6 +6,9 @@ class StudentCreate(BaseModel):
     name: str
     grade: int = Field(ge=1, le=6)
     avatar: str | None = None
+    # 允许客户端指定 id（浏览器端用 web-xxxx 格式）
+    # 如果不传，server 自动生成 student-xxxx
+    id: str | None = None
 
 
 class Student(BaseModel):

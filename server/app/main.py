@@ -44,10 +44,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # CORS: 当 origins 包含 "*" 时，不能同时设 allow_credentials=True（浏览器规范）
+    origins = settings.cors_origin_list
+    is_wildcard = origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origin_list,
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=not is_wildcard,
         allow_methods=["*"],
         allow_headers=["*"],
     )

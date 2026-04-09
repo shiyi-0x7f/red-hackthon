@@ -33,16 +33,17 @@ def _bank_from_settings(settings: Settings) -> QuestionBank:
     return _load_bank(str(settings.question_bank_file))
 
 
-def _q_to_schema(q) -> QuestionContent:
-    return QuestionContent(
-        id=q.id,
-        unit=q.unit,
-        semester=q.semester,
-        question_type=q.question_type,
-        content_latex=q.content_latex,
-        answer_latex=q.answer_latex,
-        difficulty=q.difficulty,
-    )
+def _q_to_schema(q) -> dict:
+    return {
+        "id": q.id,
+        "unit": q.unit,
+        "semester": q.semester,
+        "question_type": q.question_type,
+        "content_latex": q.content_latex,
+        "answer_latex": q.answer_latex,
+        "difficulty": q.difficulty,
+        "knowledge_point": getattr(q, "knowledge_point", None),
+    }
 
 
 @router.get("/questions/overview")
@@ -128,7 +129,7 @@ async def generate_quiz(
         f"mode={mode} questions={len(qs)}"
     )
     return ok(
-        {"mode": mode, "questions": [_q_to_schema(q).model_dump() for q in qs]}
+        {"mode": mode, "questions": [_q_to_schema(q) for q in qs]}
     )
 
 

@@ -2,87 +2,79 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAppStore } from '../../stores/useAppStore';
 
-interface ModelOption {
-  id: string;
-  name: string;
-  tag: string;
+/** 服务端 API 状态信息 */
+interface ServerStatus {
+  provider: string;
+  api_base: string;
+  api_key_set: boolean;
+  default_model: string;
+  available_models: Array<{ id: string; name: string; tag: string }>;
 }
 
-const availableModels: ModelOption[] = [
-  { id: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3', tag: '推荐' },
-  { id: 'Qwen/Qwen2.5-72B-Instruct', name: '通义千问 72B', tag: '通用' },
-  { id: 'THUDM/glm-4-9b-chat', name: 'GLM-4 9B', tag: '轻量' },
-];
-
 const SettingsPage: React.FC = () => {
-  const { selectedModel, setSelectedModel, currentStudentName, currentGrade } = useAppStore();
+  const {
+    currentStudentName,
+    currentGrade,
+    currentStudentId,
+  } = useAppStore();
 
-  const [apiKey, setApiKey] = useState('');
-  const [apiKeyMasked, setApiKeyMasked] = useState('');
   const [maxDuration, setMaxDuration] = useState(30);
-  const [maxChat, setMaxChat] = useState(20);
   const [studentName, setStudentName] = useState(currentStudentName);
   const [studentGrade, setStudentGrade] = useState(currentGrade);
   const [saveMsg, setSaveMsg] = useState('');
-  const [activeSection, setActiveSection] = useState('model');
+  const [activeSection, setActiveSection] = useState('status');
+
+  // 服务端状态
+  const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
+  const [serverLoading, setServerLoading] = useState(false);
+  const [serverError, setServerError] = useState('');
 
   useEffect(() => {
-    // 尝试从 localStorage 加载设置
+    // 加载本地学习参数
     const saved = localStorage.getItem('app_settings');
     if (saved) {
       try {
         const s = JSON.parse(saved);
         if (s.maxDuration) setMaxDuration(s.maxDuration);
-        if (s.maxChat) setMaxChat(s.maxChat);
-        if (s.apiKeyMasked) setApiKeyMasked(s.apiKeyMasked);
       } catch { /* ignore */ }
     }
+
+    // 加载服务端状态
+    loadServerStatus();
   }, []);
 
-  const handleSave = async () => {
-    // 保存到 localStorage（学习参数等）
-    const masked = apiKey ? '••••••••' + apiKey.slice(-4) : apiKeyMasked;
-    setApiKeyMasked(masked);
-    localStorage.setItem('app_settings', JSON.stringify({
-      maxDuration, maxChat, apiKeyMasked: masked,
-    }));
-
-    // 如果有新 API Key，保存到后端数据库并重新初始化 LLM
-    if (apiKey.trim()) {
-      try {
-        const { settingsService } = await import('../../services');
-        const result = await settingsService.saveApiKey(apiKey.trim(), selectedModel) as {
-          success: boolean;
-          message: string;
-        };
-        setSaveMsg(result.message || '设置已保存，AI 对话已启用 ✓');
-      } catch {
-        // 浏览器模式或后端不可用
-        setSaveMsg('API Key 已本地保存（后端未连接）');
-      }
-    } else {
-      setSaveMsg('设置已保存 ✓');
+  const loadServerStatus = async () => {
+    setServerLoading(true);
+    setServerError('');
+    try {
+      const { settingsService } = await import('../../services');
+      const result = await settingsService.getSettings() as ServerStatus;
+      setServerStatus(result);
+    } catch (e) {
+      setServerError('无法连接服务器');
+      console.warn('[Settings] 获取服务端状态失败:', e);
+    } finally {
+      setServerLoading(false);
     }
+  };
 
-    setApiKey('');
+  const handleSave = async () => {
+    localStorage.setItem('app_settings', JSON.stringify({ maxDuration }));
+    setSaveMsg('设置已保存 ✓');
     setTimeout(() => setSaveMsg(''), 3000);
   };
 
   const handleClearData = async () => {
     if (!window.confirm('确定要清除所有学习数据吗？此操作不可撤销！')) return;
 
-    // 始终清 localStorage 浏览器 mock 端
-    localStorage.removeItem('mock_answer_records');
-
-    // Tauri 模式：调后端清空数据库
     try {
       const { learningService } = await import('../../services');
-      const result = await learningService.clearStudentData('default-student');
+      const result = await learningService.clearStudentData(currentStudentId);
       if (result) {
         console.info('[清除数据] 后端删除行数:', result.total_deleted);
       }
     } catch (e) {
-      console.warn('[清除数据] 后端调用失败（浏览器模式或未配置）:', e);
+      console.warn('[清除数据] 后端调用失败:', e);
     }
 
     // 通知其他页面（如知识地图）刷新进度
@@ -92,36 +84,11 @@ const SettingsPage: React.FC = () => {
   };
 
   const sections = [
-    { key: 'model', icon: '🤖', label: 'AI 模型' },
-    { key: 'apikey', icon: '🔑', label: 'API Key' },
-    { key: 'backend', icon: '🌐', label: '后端模式' },
+    { key: 'status', icon: '📡', label: '服务状态' },
     { key: 'learning', icon: '📚', label: '学习参数' },
     { key: 'student', icon: '👤', label: '学生信息' },
     { key: 'data', icon: '🗂️', label: '数据管理' },
   ];
-
-  // 后端模式设置
-  const [backendMode, setBackendMode] = useState<'tauri' | 'http' | 'mock'>(() => {
-    const m = (typeof window !== 'undefined' && window.localStorage.getItem('backend_mode')) as any;
-    if (m === 'tauri' || m === 'http' || m === 'mock') return m;
-    return typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)
-      ? 'tauri'
-      : 'mock';
-  });
-  const [httpBase, setHttpBase] = useState(
-    () => (typeof window !== 'undefined' && window.localStorage.getItem('http_backend_base')) || ''
-  );
-  const [httpKey, setHttpKey] = useState(
-    () => (typeof window !== 'undefined' && window.localStorage.getItem('http_backend_key')) || ''
-  );
-
-  const handleSaveBackend = () => {
-    window.localStorage.setItem('backend_mode', backendMode);
-    window.localStorage.setItem('http_backend_base', httpBase.trim());
-    window.localStorage.setItem('http_backend_key', httpKey.trim());
-    setSaveMsg('后端模式已保存，刷新页面后生效 ✓');
-    setTimeout(() => setSaveMsg(''), 3000);
-  };
 
   return (
     <motion.div
@@ -153,121 +120,86 @@ const SettingsPage: React.FC = () => {
         {/* 右侧内容 */}
         <div className="settings-content">
           <AnimatePresence mode="wait">
-            {activeSection === 'model' && (
-              <motion.div key="model" className="settings-section" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                <h2 className="section-title">选择 AI 模型</h2>
-                <p className="section-desc">不同模型有不同的特点，选择最适合你的那个</p>
-                <div className="model-grid">
-                  {availableModels.map((m) => (
-                    <div
-                      key={m.id}
-                      className={`model-card ${selectedModel === m.id ? 'active' : ''}`}
-                      onClick={() => setSelectedModel(m.id)}
-                    >
-                      <div className="model-card-header">
-                        <span className="model-name">{m.name}</span>
-                        <span className={`model-tag tag-${m.tag === '推荐' ? 'primary' : m.tag === '通用' ? 'info' : 'success'}`}>{m.tag}</span>
-                      </div>
-                      <div className="model-card-id">{m.id}</div>
-                      {selectedModel === m.id && (
-                        <div className="model-check">✓ 当前使用</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            )}
+            {activeSection === 'status' && (
+              <motion.div key="status" className="settings-section" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                <h2 className="section-title">服务状态</h2>
+                <p className="section-desc">当前连接的 AI 学习服务器信息（由服务端统一配置）</p>
 
-            {activeSection === 'apikey' && (
-              <motion.div key="apikey" className="settings-section" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                <h2 className="section-title">API Key 管理</h2>
-                <p className="section-desc">输入硅基流动的 API Key 以启用 AI 功能</p>
-                <div className="form-group">
-                  <label className="form-label">当前 Key</label>
-                  <div className="form-value">{apiKeyMasked || '未设置'}</div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">新 API Key</label>
-                  <input
-                    type="password"
-                    className="form-input"
-                    placeholder="sk-xxxxxxxxxxxxxxxx"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                  />
-                  <span className="form-hint">Key 仅保存在本地，不会上传到任何服务器</span>
-                </div>
-              </motion.div>
-            )}
-
-            {activeSection === 'backend' && (
-              <motion.div key="backend" className="settings-section" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
-                <h2 className="section-title">后端模式</h2>
-                <p className="section-desc">选择数据存在哪里 — 本地单机、远程服务器还是浏览器演示</p>
-
-                <div className="model-grid">
-                  {[
-                    { id: 'tauri', name: '本地 Tauri', tag: '单机', desc: '数据存在本机 SQLite，不联网' },
-                    { id: 'http', name: '远程服务器', tag: 'C/S', desc: '连接独立 FastAPI 服务器，多设备共享' },
-                    { id: 'mock', name: '浏览器演示', tag: 'Mock', desc: 'localStorage 模拟，仅用于开发' },
-                  ].map((m) => (
-                    <div
-                      key={m.id}
-                      className={`model-card ${backendMode === m.id ? 'active' : ''}`}
-                      onClick={() => setBackendMode(m.id as any)}
-                    >
-                      <div className="model-card-header">
-                        <span className="model-name">{m.name}</span>
-                        <span className={`model-tag tag-${m.id === 'http' ? 'info' : m.id === 'tauri' ? 'primary' : 'success'}`}>{m.tag}</span>
-                      </div>
-                      <div className="model-card-id">{m.desc}</div>
-                      {backendMode === m.id && <div className="model-check">✓ 当前使用</div>}
-                    </div>
-                  ))}
-                </div>
-
-                {backendMode === 'http' && (
-                  <>
-                    <div className="form-group" style={{ marginTop: 16 }}>
-                      <label className="form-label">服务器地址</label>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="留空 = 同源相对路径"
-                        value={httpBase}
-                        onChange={(e) => setHttpBase(e.target.value)}
-                      />
-                      <span className="form-hint">
-                        同域部署留空即可；跨域填完整地址，例：http://192.168.1.10:9100
-                      </span>
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">API Key (Bearer)</label>
-                      <input
-                        type="password"
-                        className="form-input"
-                        placeholder="sk-ai-learning-xxx"
-                        value={httpKey}
-                        onChange={(e) => setHttpKey(e.target.value)}
-                      />
-                      <span className="form-hint">对应服务器的 LEARNING_API_KEY 环境变量</span>
-                    </div>
-                  </>
+                {serverLoading && (
+                  <div className="status-loading">
+                    <span className="status-spinner">⏳</span> 正在连接服务器...
+                  </div>
                 )}
 
-                <button className="save-button" onClick={handleSaveBackend} style={{ marginTop: 8 }}>
-                  保存后端配置
-                </button>
-                <p className="form-hint" style={{ marginTop: 8 }}>
-                  切换后请刷新页面使配置生效
-                </p>
+                {serverError && (
+                  <div className="status-error">
+                    <span className="status-icon">❌</span>
+                    <div>
+                      <div className="status-error-text">{serverError}</div>
+                      <button className="btn-link" onClick={loadServerStatus}>重试连接</button>
+                    </div>
+                  </div>
+                )}
+
+                {serverStatus && !serverLoading && (
+                  <div className="status-grid">
+                    <div className="status-card">
+                      <div className="status-card-label">连接状态</div>
+                      <div className="status-card-value status-ok">
+                        <span className="status-dot online"></span> 已连接
+                      </div>
+                    </div>
+                    <div className="status-card">
+                      <div className="status-card-label">AI 模型</div>
+                      <div className="status-card-value">{serverStatus.default_model}</div>
+                    </div>
+                    <div className="status-card">
+                      <div className="status-card-label">API Key</div>
+                      <div className="status-card-value">
+                        {serverStatus.api_key_set ? (
+                          <span className="status-ok">✓ 已配置</span>
+                        ) : (
+                          <span className="status-warn">⚠ 未配置</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="status-card">
+                      <div className="status-card-label">服务提供商</div>
+                      <div className="status-card-value">{serverStatus.provider || 'SiliconFlow'}</div>
+                    </div>
+                  </div>
+                )}
+
+                {serverStatus && serverStatus.available_models && (
+                  <div style={{ marginTop: 20 }}>
+                    <h3 className="subsection-title">可用模型</h3>
+                    <div className="model-grid">
+                      {serverStatus.available_models.map((m) => (
+                        <div
+                          key={m.id}
+                          className={`model-card ${serverStatus.default_model === m.id ? 'active' : ''}`}
+                          style={{ cursor: 'default' }}
+                        >
+                          <div className="model-card-header">
+                            <span className="model-name">{m.name}</span>
+                            <span className={`model-tag tag-${m.tag === '推荐' ? 'primary' : m.tag === '通用' ? 'info' : 'success'}`}>{m.tag}</span>
+                          </div>
+                          <div className="model-card-id">{m.id}</div>
+                          {serverStatus.default_model === m.id && (
+                            <div className="model-check">✓ 当前使用</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             )}
 
             {activeSection === 'learning' && (
               <motion.div key="learning" className="settings-section" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
                 <h2 className="section-title">学习参数</h2>
-                <p className="section-desc">调整学习时长和聊天限制</p>
+                <p className="section-desc">调整学习节奏</p>
                 <div className="form-group">
                   <label className="form-label">单次学习最大时长</label>
                   <div className="slider-row">
@@ -281,21 +213,6 @@ const SettingsPage: React.FC = () => {
                       onChange={(e) => setMaxDuration(Number(e.target.value))}
                     />
                     <span className="slider-value">{maxDuration} 分钟</span>
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">每日聊天上限</label>
-                  <div className="slider-row">
-                    <input
-                      type="range"
-                      className="form-slider"
-                      min={5}
-                      max={50}
-                      step={5}
-                      value={maxChat}
-                      onChange={(e) => setMaxChat(Number(e.target.value))}
-                    />
-                    <span className="slider-value">{maxChat} 次</span>
                   </div>
                 </div>
               </motion.div>

@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { studentModelService, type ReviewItem as BackendReviewItem } from '../../services';
-
-const STUDENT_ID = 'default-student';
+import { useAppStore } from '../../stores/useAppStore';
 
 interface UiReviewItem {
   id: string;
@@ -99,31 +98,26 @@ const ReviewCard: React.FC<{
 
 const ReviewPage: React.FC = () => {
   const navigate = useNavigate();
+  const studentId = useAppStore((s) => s.currentStudentId);
   const [items, setItems] = useState<UiReviewItem[]>([]);
   const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [dataSource, setDataSource] = useState<'mock' | 'tauri'>('mock');
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     studentModelService
-      .getReviewRecommendations(STUDENT_ID)
+      .getReviewRecommendations(studentId)
       .then((real) => {
         if (cancelled) return;
         setItems(real.map(fromBackend));
-        // 检测是否真实后端：通过 hours_since_last 字段是否随机化判断
-        // 简化：用 isTauri 副效应（service 内部已分流）
-        if (typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)) {
-          setDataSource('tauri');
-        }
       })
       .catch((e) => console.warn('[Review] 拉取推荐失败:', e))
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [studentId]);
 
   // 已经按优先级排序过（服务端 + mock 都 sorted by priority_score desc）
   const sortedItems = [...items].sort((a, b) => b.priorityScore - a.priorityScore);
@@ -165,12 +159,7 @@ const ReviewPage: React.FC = () => {
     >
       <div className="review-header">
         <div>
-          <h1 className="page-title">
-            🔄 智能复习
-            <span className={`profile-source-tag ${dataSource}`}>
-              {dataSource === 'tauri' ? '✅ 实时数据' : '🧪 演示数据'}
-            </span>
-          </h1>
+          <h1 className="page-title">🔄 智能复习</h1>
           <p className="page-subtitle">艾宾浩斯遗忘曲线 · 只推荐到期的，今日最多 5 项</p>
         </div>
         <div className="review-summary">

@@ -148,4 +148,4 @@ async def get_hint(
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"生成提示失败: {e}") from e
-    return ok({"hint": text.strip(), "level": payload.level})
+    return ok({"text": text.strip(), "level": payload.level})

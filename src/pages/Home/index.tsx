@@ -154,7 +154,7 @@ const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const timeSlot = getTimeSlot();
   const greeting = GREETINGS[timeSlot];
-  const studentId = useAppStore((s) => s.currentStudentId) || 'default-student';
+  const studentId = useAppStore((s) => s.currentStudentId);
 
   // 对话默认展开
   const [chatOpen, setChatOpen] = useState(true);
@@ -164,12 +164,7 @@ const HomePage: React.FC = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const replyIndex = useRef(0);
 
-  // 节奏控制状态（来自后端 chatService）
-  const [chatRemaining, setChatRemaining] = useState<number | null>(null);
-  const [sessionSecs, setSessionSecs] = useState(0);
-  const [sessionMaxSecs] = useState(300); // 5 分钟硬限
-  const [limitReason, setLimitReason] = useState<string | null>(null);
-  const [cooldownSecs, setCooldownSecs] = useState(0);
+  // 聊天次数和时长限制已取消，UI 不再展示限制信息
 
   // 语音相关状态
   const [isListening, setIsListening] = useState(false);
@@ -198,56 +193,83 @@ const HomePage: React.FC = () => {
     if (!content || isTyping) return;
 
     const studentMsg: ChatMessage = { id: Date.now(), role: 'student', content };
+    const aiMsgId = Date.now() + 1;
     setMessages((prev) => [...prev, studentMsg]);
     setInputValue('');
     setIsTyping(true);
 
     try {
-      const { chatService } = await import('../../services');
-      const result = await chatService.sendMessage(studentId, content) as {
-        reply: string;
-        structured?: StructuredReply;
-        chat_remaining?: number;
-        is_limited?: boolean;
-        limit_reason?: string;
-        session_secs?: number;
-        session_max_secs?: number;
-        cooldown_remaining_secs?: number;
-        needs_escalation?: boolean;
-      };
+      const { getHttpBase, getHttpApiKey } = await import('../../services');
+      const url = `${getHttpBase()}/api/v1/chat/stream`;
+      const key = getHttpApiKey();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (key) headers['Authorization'] = `Bearer ${key}`;
 
-      // 节奏控制元数据
-      if (typeof result.chat_remaining === 'number') setChatRemaining(result.chat_remaining);
-      if (typeof result.session_secs === 'number') setSessionSecs(result.session_secs);
-      if (result.is_limited) {
-        setLimitReason(result.limit_reason ?? 'limited');
-        if (result.cooldown_remaining_secs) setCooldownSecs(result.cooldown_remaining_secs);
-      } else {
-        setLimitReason(null);
-        setCooldownSecs(0);
-      }
-      if (result.needs_escalation) {
-        console.warn('[Chat] 触发敏感内容升级提示');
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          student_id: studentId,
+          content,
+          context_type: 'casual',
+        }),
+      });
+
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
       }
 
-      // 尝试解析 structured 或从 reply 中解析 JSON
-      let structured: StructuredReply | undefined = result.structured as StructuredReply;
-      if (!structured?.text) {
-        try {
-          const parsed = JSON.parse(result.reply);
-          if (parsed.text) structured = parsed;
-        } catch { /* not JSON */ }
-      }
-
+      // 先创建一个空的 AI 回复气泡
       setMessages((prev) => [
         ...prev,
-        {
-          id: Date.now() + 1,
-          role: 'companion',
-          content: structured?.text || result.reply,
-          structured,
-        },
+        { id: aiMsgId, role: 'companion', content: '' },
       ]);
+
+      // 流式读取 SSE 并逐 chunk 更新气泡内容
+      const reader = resp.body!.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+
+        let sepIdx: number;
+        while ((sepIdx = buffer.indexOf('\n\n')) >= 0) {
+          const rawEvent = buffer.slice(0, sepIdx);
+          buffer = buffer.slice(sepIdx + 2);
+
+          let evName = 'message';
+          const dataLines: string[] = [];
+          for (const line of rawEvent.split('\n')) {
+            if (line.startsWith('event:')) evName = line.slice(6).trim();
+            else if (line.startsWith('data:')) dataLines.push(line.slice(5));
+          }
+          const data = dataLines.join('\n').trim();
+
+          if (evName === 'chunk' && data) {
+            fullText += data;
+            // 实时更新气泡内容
+            const snapshot = fullText;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === aiMsgId ? { ...m, content: snapshot } : m)),
+            );
+          } else if (evName === 'done' || data === '[DONE]') {
+            break;
+          }
+        }
+      }
+
+      // 流结束 — 确保最终文本写入
+      if (!fullText) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === aiMsgId ? { ...m, content: '(思考中…请再试一次)' } : m,
+          ),
+        );
+      }
     } catch (err) {
       console.error('[Chat] 调用失败:', err);
       const reply = STATIC_REPLIES[replyIndex.current % STATIC_REPLIES.length];
@@ -326,63 +348,65 @@ const HomePage: React.FC = () => {
 
   return (
     <div className="home-page">
-      {/* ===== 左侧：搭子角色展示 ===== */}
-      <motion.div
-        className="companion-area"
-        initial={{ opacity: 0, x: -30 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ duration: 0.6, ease: 'easeOut' }}
-      >
-        {/* 时段背景装饰 */}
-        <div className={`companion-bg-glow ${timeSlot}`} />
-
-        {/* 角色容器 — 预留 Live2D */}
-        <div className="companion-avatar-wrapper" id="live2d-container">
-          <motion.img
-            src="/images/companion.png"
-            alt="学习搭子"
-            className="companion-avatar-img"
-            animate={{ y: [0, -8, 0] }}
-            transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-          />
-        </div>
-
-        {/* 心情标签 */}
-        <motion.div
-          className="companion-mood"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.4, duration: 0.4 }}
-        >
-          <span className="mood-emoji">{greeting.moodEmoji}</span>
-          <span className="mood-text">{greeting.mood}</span>
-        </motion.div>
-
-        {/* 日期信息 */}
-        <motion.div
-          className="companion-date"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-        >
-          {getDateStr()} · {getWeekday()}
-        </motion.div>
-      </motion.div>
-
-      {/* ===== 右侧：对话 + 快捷操作 ===== */}
-      <div className="greeting-section">
+      {/* ===== 左侧：招呼气泡 + 搭子角色展示 ===== */}
+      <div className="companion-column">
         {/* 招呼气泡 */}
         <motion.div
           className="greeting-bubble"
-          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          initial={{ opacity: 0, y: -20, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ delay: 0.3, duration: 0.5 }}
+          transition={{ delay: 0.2, duration: 0.5 }}
         >
           <div className="bubble-arrow" />
           <p className="greeting-text">{greeting.text}</p>
           <p className="greeting-sub">今天也是充满可能的一天！一起加油吧 💪</p>
         </motion.div>
 
+        <motion.div
+          className="companion-area"
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+        >
+          {/* 时段背景装饰 */}
+          <div className={`companion-bg-glow ${timeSlot}`} />
+
+          {/* 角色容器 — 预留 Live2D */}
+          <div className="companion-avatar-wrapper" id="live2d-container">
+            <motion.img
+              src="/images/companion.png"
+              alt="学习搭子"
+              className="companion-avatar-img"
+              animate={{ y: [0, -8, 0] }}
+              transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
+            />
+          </div>
+
+          {/* 心情标签 */}
+          <motion.div
+            className="companion-mood"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.4, duration: 0.4 }}
+          >
+            <span className="mood-emoji">{greeting.moodEmoji}</span>
+            <span className="mood-text">{greeting.mood}</span>
+          </motion.div>
+
+          {/* 日期信息 */}
+          <motion.div
+            className="companion-date"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.6 }}
+          >
+            {getDateStr()} · {getWeekday()}
+          </motion.div>
+        </motion.div>
+      </div>
+
+      {/* ===== 右侧：快捷操作 + 聊天 ===== */}
+      <div className="greeting-section">
         {/* 快捷操作 */}
         <div className="quick-actions">
           {[
@@ -513,46 +537,15 @@ const HomePage: React.FC = () => {
                 ))}
               </div>
 
-              {/* 节奏控制状态条 */}
-              {(chatRemaining !== null || sessionSecs > 0 || limitReason) && (
-                <div className={`chat-pacing-bar ${limitReason ? 'limited' : ''}`}>
-                  {limitReason === 'cooldown' && (
-                    <span>💤 我们刚才聊得比较多，{Math.ceil(cooldownSecs / 60)} 分钟后再聊吧</span>
-                  )}
-                  {limitReason === 'session_max' && (
-                    <span>⏱ 已经聊了 5 分钟啦，先休息一下 ☕</span>
-                  )}
-                  {limitReason === 'daily_quota' && (
-                    <span>📚 今天聊天次数用完啦，明天再来</span>
-                  )}
-                  {!limitReason && (
-                    <>
-                      {chatRemaining !== null && (
-                        <span className="chat-pacing-quota">今日剩余 {chatRemaining} 次</span>
-                      )}
-                      {sessionSecs > 0 && (
-                        <span className="chat-pacing-session">
-                          本次对话 {Math.floor(sessionSecs / 60)}:{String(sessionSecs % 60).padStart(2, '0')} / {sessionMaxSecs / 60}:00
-                          <span className="chat-pacing-track">
-                            <span className="chat-pacing-fill" style={{ width: `${Math.min(100, (sessionSecs / sessionMaxSecs) * 100)}%` }} />
-                          </span>
-                        </span>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-
               {/* 输入框 + 语音 + 发送 */}
               <div className="chat-input-area">
                 <input
                   type="text"
                   className="chat-input"
-                  placeholder={isListening ? '🎤 正在听你说...' : limitReason ? '稍后再来吧...' : '说点什么吧...'}
+                  placeholder={isListening ? '🎤 正在听你说...' : '说点什么吧...'}
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  disabled={!!limitReason}
                 />
 
                 {/* 语音按钮 */}

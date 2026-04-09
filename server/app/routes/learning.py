@@ -27,13 +27,13 @@ def _bank_from_path(path: str) -> QuestionBank:
     return QuestionBank.from_file(path)
 
 
-def _synth_knowledge_id(unit: str) -> str:
-    """从题目的 unit 字段生成稳定的 knowledge_id
+def _synth_knowledge_id(name: str) -> str:
+    """从一个名称生成稳定的 knowledge_id
 
-    对齐 Rust 版 commands/learning.rs::submit_answer 的策略：
-        knowledge_id = "kn-" + unit.replace(' ', '_')
+    命名规则：`kn-{name replace space with _}`，清掉可能引起 SQL / URL 问题的字符。
+    输入可以是单元名也可以是具体知识点名。
     """
-    return "kn-" + (unit or "unknown").replace(" ", "_")
+    return "kn-" + (name or "unknown").replace(" ", "_").replace("/", "_")
 
 
 async def _ensure_knowledge_and_question(
@@ -43,20 +43,28 @@ async def _ensure_knowledge_and_question(
 ) -> str:
     """Lazy upsert knowledge_nodes + questions (FK 前置条件)
 
-    与 Rust `commands/learning.rs` 里 INSERT OR IGNORE 的行为 1:1 一致。
+    粒度：
+    - 如果题目带 knowledge_point 字段（前几个单元有），按知识点粒度建 knowledge_node
+    - 否则退化为单元粒度
+
+    这对前端 Learn 页的知识地图很关键：Learn 页按知识点名查 mastery，如果 server
+    只建单元粒度的 knowledge_node，Learn 页永远查不到，星星永远不点亮。
+
     返回同步后的 knowledge_id（用于后续 BKT 更新）。
     """
-    knowledge_id = _synth_knowledge_id(q.unit)
+    # 优先用知识点名，没有就用单元名
+    node_name = q.knowledge_point or q.unit
+    knowledge_id = _synth_knowledge_id(node_name)
     source = "ai" if question_id.startswith("ai-") else "bank"
 
-    # knowledge_nodes 的 unit 字段是 INTEGER（和 SQL schema 对齐），用 0 占位
+    # knowledge_nodes 的 unit 字段是 INTEGER，用 0 占位
     await db.execute(
         """
         INSERT OR IGNORE INTO knowledge_nodes
           (id, name, grade, semester, unit, sort_order)
         VALUES (?, ?, 6, 1, 0, 0)
         """,
-        (knowledge_id, q.unit),
+        (knowledge_id, node_name),
     )
     await db.execute(
         """
@@ -84,12 +92,20 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 async def start_session(
     payload: SessionStart, db: aiosqlite.Connection = Depends(get_db)
 ):
-    # 确保学生存在（可选：自动创建）
+    # 确保学生存在（不存在则自动创建，避免前端 ensureStudentExists 还没完成的竞态）
     async with db.execute(
         "SELECT id FROM students WHERE id = ?", (payload.student_id,)
     ) as cur:
         if await cur.fetchone() is None:
-            raise HTTPException(status_code=404, detail="学生不存在")
+            await db.execute(
+                """
+                INSERT OR IGNORE INTO students (id, name, grade)
+                VALUES (?, ?, 6)
+                """,
+                (payload.student_id, f"同学{payload.student_id[-4:]}"),
+            )
+            await db.commit()
+            logger.info(f"start_session 自动创建学生: {payload.student_id}")
 
     session_id = f"session-{uuid.uuid4().hex[:8]}"
     await db.execute(
@@ -381,6 +397,9 @@ async def generate_summary(
     correct = int(srow["correct_count"])
     accuracy_pct = int(round(correct / total * 100)) if total else 0
 
+    duration_minutes = int((srow["total_duration_secs"] or 0) / 60)
+    from_llm = True
+
     try:
         client = get_llm_client()
         if not client.api_key:
@@ -390,7 +409,7 @@ async def generate_summary(
             total=total,
             correct=correct,
             accuracy_pct=accuracy_pct,
-            duration_minutes=int((srow["total_duration_secs"] or 0) / 60),
+            duration_minutes=duration_minutes,
             answers_brief="",
             weak_topics=[],
         )
@@ -402,6 +421,7 @@ async def generate_summary(
         data = json.loads(cleaned)
     except Exception as e:
         logger.warning(f"生成总结失败，返回空结构: {e}")
+        from_llm = False
         data = {
             "headline": f"做了 {total} 道题，答对 {correct} 道",
             "highlights": [],
@@ -414,7 +434,10 @@ async def generate_summary(
             "session_id": session_id,
             "total_questions": total,
             "correct_count": correct,
+            "accuracy_pct": accuracy_pct,
             "accuracy_rate": correct / total if total else 0,
+            "duration_minutes": duration_minutes,
+            "from_llm": from_llm,
             **data,
         }
     )

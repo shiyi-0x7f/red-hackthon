@@ -19,7 +19,9 @@ class QuestionContent(BaseModel):
 
 class QuizGenerateRequest(BaseModel):
     student_id: str
-    mode: str = "adaptive"  # 'diagnose' | 'unit' | 'adaptive'
+    # 'auto' (默认): 按答题总数自动切换 diagnose/emerging/adaptive
+    # 'diagnose' | 'unit' | 'adaptive': 客户端显式指定
+    mode: str = "auto"
     unit: str | None = None
     count: int = 5
     knowledge_ids: list[str] | None = None

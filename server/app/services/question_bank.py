@@ -22,6 +22,9 @@ class BaseQuestion:
     content_latex: str
     answer_latex: str
     difficulty: int
+    # 知识点名称（题目级，不是单元级）— 用作 knowledge_nodes.name 的细粒度追踪 key
+    # 前 N 个单元的题目在 JSON 里带 `知识点` 字段；旧单元可能缺失
+    knowledge_point: str | None = None
 
 
 def infer_difficulty(qtype: str, content: str) -> int:
@@ -62,19 +65,32 @@ class QuestionBank:
                     qtype = q.get("题型", "")
                     content = q.get("题目_latex", "")
                     answer = q.get("答案_latex", "")
+                    # 优先使用 JSON 里提供的稳定 id（如 q-u1-kp1-001），退回自动编号
+                    stable_id = q.get("id") or f"base-{idx:04d}"
+                    # 题目级的知识点标签（前几个单元有，其他单元没有）
+                    knowledge_point = q.get("知识点")
+                    if isinstance(knowledge_point, list):
+                        knowledge_point = knowledge_point[0] if knowledge_point else None
+                    if knowledge_point is not None and not isinstance(knowledge_point, str):
+                        knowledge_point = str(knowledge_point)
+
                     questions.append(
                         BaseQuestion(
-                            id=f"base-{idx:04d}",
+                            id=str(stable_id),
                             unit=unit_name,
                             semester=semester_name,
                             question_type=qtype,
                             content_latex=content,
                             answer_latex=answer,
                             difficulty=infer_difficulty(qtype, content),
+                            knowledge_point=knowledge_point,
                         )
                     )
 
-        logger.info(f"题库加载完成: {len(questions)} 道基题")
+        with_kp = sum(1 for q in questions if q.knowledge_point)
+        logger.info(
+            f"题库加载完成: {len(questions)} 道基题（其中 {with_kp} 道带知识点标签）"
+        )
         return cls(questions=questions)
 
     @classmethod

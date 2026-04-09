@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     siliconflow_default_model: str = "deepseek-ai/DeepSeek-V3"
 
     # --- CORS ---
-    cors_origins: str = "http://localhost:1420,http://localhost:5173,tauri://localhost"
+    cors_origins: str = "*"
 
     # --- 家长端 ---
     default_parent_password: str = "123456"

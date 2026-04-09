@@ -561,9 +561,19 @@ body {
   overflow: hidden;
 }
 
+/* --- 左侧列：招呼气泡 + 搭子 --- */
+.companion-column {
+  flex: 0 0 340px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+  min-height: 0;
+}
+
 /* --- 左侧：角色展示区 --- */
 .companion-area {
-  flex: 0 0 340px;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -677,6 +687,8 @@ body {
   min-height: 0;
   overflow: hidden;
   padding-right: var(--space-xs);
+  container-type: inline-size;
+  container-name: greeting-section;
 }
 
 /* 招呼气泡 */
@@ -691,14 +703,14 @@ body {
 
 .greeting-bubble .bubble-arrow {
   position: absolute;
-  left: -12px;
-  top: 32px;
+  left: 60px;
+  bottom: -10px;
   width: 0;
   height: 0;
-  border-top: 10px solid transparent;
-  border-bottom: 10px solid transparent;
-  border-right: 12px solid var(--color-bg-card);
-  filter: drop-shadow(-2px 0 2px rgba(255, 140, 66, 0.08));
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 12px solid var(--color-bg-card);
+  filter: drop-shadow(0 2px 2px rgba(255, 140, 66, 0.08));
 }
 
 .greeting-text {
@@ -769,6 +781,30 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 容器查询：右侧可用宽度太窄时，三张卡每张就会很挤，先把描述文字隐藏，
+   再窄一点让卡片只剩图标 + 标题居中。 */
+@container greeting-section (max-width: 640px) {
+  .quick-action-card {
+    padding: var(--space-md);
+    gap: var(--space-sm);
+  }
+  .action-desc {
+    display: none;
+  }
+}
+
+@container greeting-section (max-width: 500px) {
+  .quick-action-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 6px;
+    padding: var(--space-sm);
+  }
+  .action-title {
+    font-size: var(--font-size-sm);
+  }
 }
 
 /* --- 对话�?--- */
@@ -1121,31 +1157,294 @@ body {
 }
 
 /* --- 响应式适配 --- */
-@media (max-width: 900px) {
+
+/* === 平板 & 小屏 (<=1024px) === */
+@media (max-width: 1024px) {
+  .companion-column {
+    flex: 0 0 260px;
+  }
+
+  .companion-avatar-wrapper {
+    width: 160px;
+    height: 160px;
+  }
+
+  .companion-avatar-img {
+    width: 120px;
+    height: 120px;
+  }
+}
+
+/* === 手机横屏 & 小平板 (<=768px) === */
+@media (max-width: 768px) {
+  body {
+    overflow: auto;
+  }
+
+  #root {
+    height: auto;
+    min-height: 100vh;
+  }
+
+  /* 侧边栏 → 底部导航栏 */
+  .app-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+
+  .app-sidebar {
+    width: 100%;
+    height: auto;
+    flex-direction: row;
+    padding: var(--space-xs) var(--space-sm);
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: var(--color-bg-card);
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+    order: 2;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    justify-content: space-around;
+    width: 100%;
+    gap: 0;
+  }
+
+  .sidebar-nav-item {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+
+  .sidebar-nav-item .nav-tooltip {
+    display: none;
+  }
+
+  .sidebar-bottom {
+    flex-direction: row;
+    gap: 0;
+    padding-bottom: 0;
+  }
+
+  /* 主内容 */
+  .app-main {
+    order: 1;
+    padding-bottom: 60px; /* 给底部导航留空间 */
+    min-height: 100vh;
+  }
+
+  .app-topbar {
+    padding: 0 var(--space-md);
+    height: 48px;
+  }
+
+  .gamification-stats {
+    gap: var(--space-sm);
+  }
+
+  .stat-badge {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .stat-badge span {
+    display: none;
+  }
+
+  .stat-badge-icon {
+    font-size: 14px;
+  }
+
+  .app-content {
+    padding: var(--space-md);
+  }
+
+  /* 首页 */
   .home-page {
     flex-direction: column;
     overflow-y: auto;
+    height: auto;
+    gap: var(--space-md);
+  }
+
+  .companion-column {
+    flex: 0 0 auto;
+    width: 100%;
+    flex-direction: column;
+    gap: var(--space-md);
   }
 
   .companion-area {
     flex: 0 0 auto;
     flex-direction: row;
-    padding: var(--space-lg);
+    padding: var(--space-md);
     gap: var(--space-md);
   }
 
+  .companion-bg-glow {
+    display: none;
+  }
+
   .companion-avatar-wrapper {
-    width: 100px;
-    height: 100px;
+    width: 80px;
+    height: 80px;
+  }
+
+  .companion-avatar-wrapper::before {
+    display: none;
   }
 
   .companion-avatar-img {
-    width: 72px;
-    height: 72px;
+    width: 60px;
+    height: 60px;
+  }
+
+  .companion-mood {
+    padding: 4px 12px;
+    font-size: 11px;
+  }
+
+  .companion-date {
+    font-size: 11px;
+  }
+
+  .greeting-section {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .greeting-bubble {
+    padding: var(--space-md);
+  }
+
+  .greeting-bubble .bubble-arrow {
+    display: none;
+  }
+
+  .greeting-text {
+    font-size: var(--font-size-base);
   }
 
   .quick-actions {
     grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+
+  .quick-action-card {
+    padding: var(--space-md);
+  }
+
+  /* 聊天区域 */
+  .chat-section {
+    min-height: 300px;
+    max-height: 60vh;
+  }
+
+  .chat-bubble {
+    max-width: 90%;
+  }
+
+  .chat-bubble-content {
+    padding: 8px 12px;
+    font-size: var(--font-size-sm);
+  }
+
+  .chat-avatar {
+    width: 28px;
+    height: 28px;
+  }
+
+  .chat-suggestions {
+    padding: var(--space-xs) var(--space-md);
+  }
+
+  .suggestion-chip {
+    padding: 4px 12px;
+    font-size: 11px;
+  }
+
+  .chat-input-area {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  /* 背景装饰：手机上隐藏 */
+  .bg-decoration {
+    display: none;
   }
 }
 
+/* === 小手机 (<=480px) === */
+@media (max-width: 480px) {
+  .app-topbar {
+    height: 44px;
+  }
+
+  .topbar-greeting {
+    font-size: var(--font-size-base);
+  }
+
+  .user-avatar {
+    width: 30px;
+    height: 30px;
+    font-size: 11px;
+  }
+
+  .companion-area {
+    padding: var(--space-sm);
+  }
+
+  .companion-avatar-wrapper {
+    width: 64px;
+    height: 64px;
+  }
+
+  .companion-avatar-img {
+    width: 48px;
+    height: 48px;
+  }
+
+  .greeting-bubble {
+    padding: var(--space-sm) var(--space-md);
+  }
+
+  .greeting-text {
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+  }
+
+  .greeting-sub {
+    font-size: 11px;
+  }
+
+  .action-icon {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    font-size: 16px;
+  }
+
+  .action-title {
+    font-size: var(--font-size-sm);
+  }
+
+  .action-desc {
+    font-size: 11px;
+  }
+
+  .chat-send-btn,
+  .chat-voice-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
+
+  .chat-input {
+    padding: 8px 12px;
+    font-size: var(--font-size-sm);
+  }
+}

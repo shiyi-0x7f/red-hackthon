@@ -35,7 +35,7 @@ DEPLOY_ITEMS = [
 
 # ── 打包时排除的文件 ──
 EXCLUDE_PATTERNS = {
-    ".venv", "__pycache__", "*.pyc", ".env", "*.db", "node_modules",
+    ".venv", "__pycache__", "*.pyc", "*.db", "node_modules",
     ".git", ".DS_Store", "Thumbs.db",
 }
 

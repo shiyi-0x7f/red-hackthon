@@ -13,7 +13,9 @@ import {
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { useQuestionStore, type Question } from '../../stores/useQuestionStore';
-import { questionBankService, saveMockAnswerRecord, learningService, questionService } from '../../services';
+import { questionBankService, learningService, questionService } from '../../services';
+import { useAppStore } from '../../stores/useAppStore';
+import { ensureAudioReady, playCorrect, playWrong } from '../../audio/feedbackSound';
 import HintPanel from '../../components/learning/HintPanel';
 import ExplanationPanel from '../../components/learning/ExplanationPanel';
 import StudentDashboard from '../../components/learning/StudentDashboard';
@@ -21,7 +23,8 @@ import CheckinModal from '../../components/learning/CheckinModal';
 import '../../styles/practice.css';
 import '../../styles/learning-extras.css';
 
-const STUDENT_ID = 'default-student';
+/** 答题完成后 dispatch 的事件名 — Learn 页监听它刷新知识地图进度 */
+const LEARNING_DATA_UPDATED = 'learning-data:updated';
 
 /* ========================================
    LaTeX 渲染工具
@@ -790,6 +793,7 @@ const FeedbackOverlay: React.FC<{
   correctAnswer: string;
   onNext: () => void;
   onExplain: () => void;
+  onRetryQuestion?: () => void;
   isLast: boolean;
   nextActionReasoning?: string | null;
   nextActionType?: string | null;
@@ -802,6 +806,7 @@ const FeedbackOverlay: React.FC<{
   correctAnswer,
   onNext,
   onExplain,
+  onRetryQuestion,
   isLast,
   nextActionReasoning,
   nextActionType,
@@ -885,6 +890,17 @@ const FeedbackOverlay: React.FC<{
             >
               🧠 看 AI 讲解
             </button>
+            {!isCorrect && onRetryQuestion && (
+              <button
+                className="feedback-explain-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetryQuestion();
+                }}
+              >
+                🔄 再试一次
+              </button>
+            )}
             <button className="feedback-next-btn" onClick={onNext} disabled={autopilotLoading}>
               {autopilotLoading ? '🤖 AI 出题中...' : nextLabel}
             </button>
@@ -1115,6 +1131,7 @@ const PracticePage: React.FC = () => {
   const knowledgePoint = searchParams.get('kp') || null;
   const store = useQuestionStore();
   const timer = useTimer();
+  const STUDENT_ID = useAppStore((s) => s.currentStudentId);
 
   const [loading, setLoading] = useState(true);
   const [flashType, setFlashType] = useState<'correct' | 'wrong' | null>(null);
@@ -1125,7 +1142,7 @@ const PracticePage: React.FC = () => {
   const [nextActionType, setNextActionType] = useState<string | null>(null);
   const [aiBadge, setAiBadge] = useState<string | null>(null);
   const [aiErrorType, setAiErrorType] = useState<string | null>(null);
-  const [autopilotEnabled, setAutopilotEnabled] = useState(true);
+  const [autopilotEnabled] = useState(false);
   const [openingCheckinOpen, setOpeningCheckinOpen] = useState(false);
   const [closingCheckinOpen, setClosingCheckinOpen] = useState(false);
 
@@ -1136,6 +1153,25 @@ const PracticePage: React.FC = () => {
       setTimeout(() => setClosingCheckinOpen(true), 1500);
     }
   }, [store.finished]);
+
+  // 🎵 浏览器 Autoplay Policy：AudioContext 必须在用户手势里启动
+  // 在 Practice 页首次 pointerdown/touchstart 时触发一次 Tone.start()
+  useEffect(() => {
+    const handler = () => {
+      void ensureAudioReady();
+      window.removeEventListener('pointerdown', handler);
+      window.removeEventListener('touchstart', handler);
+      window.removeEventListener('keydown', handler);
+    };
+    window.addEventListener('pointerdown', handler, { once: false });
+    window.addEventListener('touchstart', handler, { once: false });
+    window.addEventListener('keydown', handler, { once: false });
+    return () => {
+      window.removeEventListener('pointerdown', handler);
+      window.removeEventListener('touchstart', handler);
+      window.removeEventListener('keydown', handler);
+    };
+  }, []);
 
   // 单元名映射（从 URL param 到实际单元名）
   const UNIT_MAP: Record<string, string> = {
@@ -1149,6 +1185,10 @@ const PracticePage: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
 
+    // 🔑 立即重置 store，防止上一轮的 finished=true 闪出结算界面
+    store.reset();
+    setSessionId(null);
+
     async function loadQuiz() {
       setLoading(true);
       try {
@@ -1160,7 +1200,7 @@ const PracticePage: React.FC = () => {
         if (!cancelled && result.questions.length > 0) {
           store.loadQuiz(result.questions, result.mode);
         }
-        // 启动 Tauri 学习会话（浏览器 mock 模式会抛异常，此时走前端 mock 判题）
+        // 启动学习会话（server POST /api/v1/sessions）
         try {
           const session = await learningService.startSession(STUDENT_ID) as { session_id?: string };
           if (!cancelled && session?.session_id) {
@@ -1168,7 +1208,6 @@ const PracticePage: React.FC = () => {
             console.info('[Practice] 学习会话启动成功:', session.session_id);
           }
         } catch (e) {
-          // Tauri 环境下这里也可能失败（例如外键约束），必须打印
           console.warn('[Practice] startSession 失败，后端判题/决策链路将跳过:', e);
         }
       } catch (e) {
@@ -1204,21 +1243,21 @@ const PracticePage: React.FC = () => {
       // 1. 前端快速判题（用于即时反馈动画）
       const localCorrect = checkAnswer(question, userAnswer);
 
+      // 🎵 根据关卡式音效协议：根音跟随当前题目的 index（0~4 循环），
+      //    对 = Major 三和弦；错 = Sus4。同一题反复答会听到"Sus4 → Major"的解决进行
+      const questionIndex = store.currentIndex;
+      if (localCorrect) {
+        playCorrect(questionIndex);
+      } else {
+        playWrong(questionIndex);
+      }
+
       setFlashType(localCorrect ? 'correct' : 'wrong');
       setTimeout(() => setFlashType(null), 500);
       if (!localCorrect) {
         setShaking(true);
         setTimeout(() => setShaking(false), 400);
       }
-
-      // mock 记录（浏览器模式仍可用，含知识点用于 Learn 页解锁）
-      saveMockAnswerRecord({
-        questionId: question.id,
-        isCorrect: localCorrect,
-        timeSpentSecs: Math.round((Date.now() - store.questionStartTime) / 1000),
-        knowledgePoint: question.knowledge_point ?? knowledgePoint ?? undefined,
-        unit: question.unit,
-      });
 
       // 先用本地结果立即填入 store（渲染 FeedbackOverlay）
       store.submitAnswer(userAnswer, localCorrect);
@@ -1252,6 +1291,12 @@ const PracticePage: React.FC = () => {
               // 同步覆盖：让 store 反映正确答案
               store.correctLastFeedback(result.is_correct);
               setAiBadge(result.is_correct ? 'AI 修正：实际正确' : 'AI 修正：实际错误');
+              // 判题结果翻转 → 重播对应音效，让用户耳朵也同步更新
+              if (result.is_correct) {
+                playCorrect(questionIndex);
+              } else {
+                playWrong(questionIndex);
+              }
             } else {
               setAiBadge('AI 已确认');
             }
@@ -1259,12 +1304,25 @@ const PracticePage: React.FC = () => {
           if (result?.error_type && result.error_type !== 'none') {
             setAiErrorType(result.error_type);
           }
+
+          // 🛰️ 广播：Learn / Profile / Review 页监听后会重新拉 server 数据，
+          //    让知识地图的星星、薄弱点列表等 UI 立刻同步
+          window.dispatchEvent(
+            new CustomEvent(LEARNING_DATA_UPDATED, {
+              detail: {
+                studentId: STUDENT_ID,
+                knowledgePoint: question.knowledge_point ?? knowledgePoint,
+                unit: question.unit,
+                isCorrect: typeof result?.is_correct === 'boolean' ? result.is_correct : localCorrect,
+              },
+            }),
+          );
         } catch (e) {
           console.warn('后端 submit_answer 失败（保留前端判题）:', e);
         }
       }
     },
-    [store, sessionId],
+    [store, sessionId, STUDENT_ID, knowledgePoint],
   );
 
   // 下一题（根据 next_action 闭环 + autopilot 无限学习流）
@@ -1288,7 +1346,7 @@ const PracticePage: React.FC = () => {
     const isLast = store.currentIndex >= store.questions.length - 1;
 
     // === Autopilot ===
-    // 当前是最后一题 + autopilot 模式 + Tauri 环境 + 决策建议继续 → 自动拉新题
+    // 当前是最后一题 + autopilot 开启 + 有会话 + 决策建议继续 → 自动拉新题
     const shouldAutopilot = isLast && autopilotEnabled && sessionId &&
       (nextActionType === 'continue_practice' || nextActionType === 'introduce_new' || nextActionType === 'schedule_review' || nextActionType === null);
 
@@ -1328,6 +1386,22 @@ const PracticePage: React.FC = () => {
     setExplainOpen(true);
   }, []);
 
+  // 再试一次（答错后重新作答同一题）
+  const handleRetryQuestion = useCallback(() => {
+    // 清除反馈状态，让学生重新回答当前题目
+    store.clearFeedback();
+    // 移除最后一条错误答题记录（不计入统计）
+    useQuestionStore.setState((s) => ({
+      answers: s.answers.slice(0, -1),
+      questionStartTime: Date.now(),
+      currentHintsUsed: 0,
+    }));
+    setAiBadge(null);
+    setAiErrorType(null);
+    setNextActionReasoning(null);
+    setNextActionType(null);
+  }, [store]);
+
   // AI 出题：根据当前单元 + 知识点 + 难度调 LLM 生成新题，插入到下一题位置
   const [aiLoading, setAiLoading] = useState(false);
   const handleAiQuestion = useCallback(async () => {
@@ -1364,7 +1438,7 @@ const PracticePage: React.FC = () => {
       const unitName = unitId
         ? (UNIT_MAP[unitId] || decodeURIComponent(unitId))
         : undefined;
-      const result = await questionBankService.getQuiz('default-student', unitName, 5);
+      const result = await questionBankService.getQuiz(STUDENT_ID, unitName, 5);
       if (result.questions.length > 0) {
         store.loadQuiz(result.questions, result.mode);
         timer.reset();
@@ -1462,13 +1536,6 @@ const PracticePage: React.FC = () => {
         </div>
 
         <div className="practice-header-right">
-          <button
-            className={`autopilot-toggle ${autopilotEnabled ? 'on' : 'off'}`}
-            onClick={() => setAutopilotEnabled((v) => !v)}
-            title="开启后，答完最后一题会按 AI 决策自动出新题"
-          >
-            {autopilotEnabled ? '🤖 自动学习中' : '🤖 自动学习关'}
-          </button>
           <div className="practice-timer">
             <ClockCircleOutlined className="timer-icon" />
             <span>{timer.formatted}</span>
@@ -1558,6 +1625,7 @@ const PracticePage: React.FC = () => {
             correctAnswer={store.lastFeedback.correctAnswer}
             onNext={handleNext}
             onExplain={handleExplain}
+            onRetryQuestion={handleRetryQuestion}
             isLast={store.currentIndex >= store.questions.length - 1}
             nextActionReasoning={nextActionReasoning}
             nextActionType={nextActionType}

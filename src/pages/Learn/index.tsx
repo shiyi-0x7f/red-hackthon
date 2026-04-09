@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   StarFilled,
@@ -12,9 +12,8 @@ import {
   FlagFilled,
 } from '@ant-design/icons';
 import { studentModelService } from '../../services';
+import { useAppStore } from '../../stores/useAppStore';
 import '../../styles/learn-map.css';
-
-const STUDENT_ID = 'default-student';
 
 interface RawKnowledgeUnit {
   单元: string;
@@ -63,58 +62,40 @@ const UNIT_CFGS = [
 ];
 
 interface Progress {
-  /** 每个知识点名 → 正确答题数 */
+  /** 每个知识点名 → 正确答题数（从 server mastery_score 估算） */
   kpCorrectCount: Map<string, number>;
-  /** 全局正确答题数（用于没 KP 标注的旧单元兜底）*/
+  /** 全局正确答题数 */
   totalCorrect: number;
-  /** 数据来源：后端 DB 或浏览器 mock */
-  source: 'backend' | 'mock';
 }
 
 /** 解锁某个知识点所需的同 KP 正确答题数阈值 */
 const KP_MASTERY_THRESHOLD = 2;
 
 /**
- * 计算当前进度（基于每个知识点的正确答题数）
+ * 计算当前进度 — 纯 server 数据
  *
- * 规则：
- * - 前 3 单元（有 KP 标注）：每 KP 需要 KP_MASTERY_THRESHOLD 条正确答题才算完成
- * - 其他单元：兜底用总答题数 / 2 作为粗粒度进度
+ * server 端的 knowledge_nodes.name 被 submit_answer 用"单元名"填充，
+ * 粒度是单元级而非知识点级。所以 kpCorrectCount 的 key 也是单元名。
+ * 用 mastery_score × 10 作为"伪正确数"估算，对应知识图谱里该单元下的
+ * 所有知识点共享这个估算值。Learn 页的 KP_MASTERY_THRESHOLD 判定仍能工作。
  */
-async function computeProgress(): Promise<Progress> {
+async function computeProgress(studentId: string): Promise<Progress> {
   try {
-    const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
-    if (Array.isArray(records)) {
-      const kpMap = new Map<string, number>();
-      let totalCorrect = 0;
-      for (const r of records) {
-        if (!r.isCorrect) continue;
-        totalCorrect++;
-        if (r.knowledgePoint) {
-          kpMap.set(r.knowledgePoint, (kpMap.get(r.knowledgePoint) || 0) + 1);
-        }
-      }
-      return { kpCorrectCount: kpMap, totalCorrect, source: 'mock' };
-    }
-  } catch (e) {
-    console.warn('[Learn] 读取 localStorage 失败:', e);
-  }
-
-  // Tauri 模式兜底（后端暂未按 KP 粒度追踪）
-  try {
-    const overview = await studentModelService.getProfileOverview(STUDENT_ID);
+    const overview = await studentModelService.getProfileOverview(studentId);
     if (overview) {
+      const kpMap = new Map<string, number>();
+      for (const m of overview.mastery_data || []) {
+        kpMap.set(m.name, Math.round((m.mastery_score || 0) * 10));
+      }
       return {
-        kpCorrectCount: new Map(),
+        kpCorrectCount: kpMap,
         totalCorrect: overview.correct_count || 0,
-        source: 'backend',
       };
     }
   } catch (e) {
     console.warn('[Learn] 后端进度获取失败:', e);
   }
-
-  return { kpCorrectCount: new Map(), totalCorrect: 0, source: 'mock' };
+  return { kpCorrectCount: new Map(), totalCorrect: 0 };
 }
 
 /** 前 3 单元使用每 KP 精确追踪；其他单元用粗粒度兜底 */
@@ -410,6 +391,8 @@ const Detail: React.FC<{ node: MapNode; theme: string; unitName: string; onClose
    ======================================== */
 
 const LearnPage: React.FC = () => {
+  const studentId = useAppStore((s) => s.currentStudentId);
+  const location = useLocation();
   const [sel, setSel] = useState<{ node: MapNode; theme: string; unitName: string } | null>(null);
   const [sem, setSem] = useState<'上册' | '下册'>('上册');
   const [allUnits, setAllUnits] = useState<MapUnit[]>([]);
@@ -419,20 +402,24 @@ const LearnPage: React.FC = () => {
 
   const rebuildFromCurrentProgress = React.useCallback(async () => {
     if (!rawKmRef.current) return;
-    const progress = await computeProgress();
+    const progress = await computeProgress(studentId);
     setAllUnits(buildUnitsFromKnowledgeMap(rawKmRef.current, progress));
-  }, []);
+  }, [studentId]);
 
-  // 首次加载知识图谱
+  // 首次加载知识图谱 + 路由回到 /learn 时重新拉进度
+  // 依赖 location.key 确保每次导航（Practice → 返回 Learn）都触发一次 server 拉取
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const resp = await fetch('/data/grade6_math_knowledge_map.json');
-        const km = (await resp.json()) as RawKnowledgeMap;
-        if (cancelled) return;
-        rawKmRef.current = km;
-        const progress = await computeProgress();
+        let km = rawKmRef.current;
+        if (!km) {
+          const resp = await fetch('/data/grade6_math_knowledge_map.json');
+          km = (await resp.json()) as RawKnowledgeMap;
+          if (cancelled) return;
+          rawKmRef.current = km;
+        }
+        const progress = await computeProgress(studentId);
         if (cancelled) return;
         setAllUnits(buildUnitsFromKnowledgeMap(km, progress));
       } catch (e) {
@@ -442,33 +429,28 @@ const LearnPage: React.FC = () => {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [studentId, location.key]);
 
-  // 监听 localStorage 变化（例如 Settings 页清除数据）+ window focus
-  // 同一个 tab 内的 localStorage 变化不会触发 storage 事件，所以还监听 focus
+  // 监听 focus / visibility / 自定义事件（答题完成、数据清空）
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'mock_answer_records' || e.key === null) {
-        rebuildFromCurrentProgress();
-      }
-    };
     const onFocus = () => {
       rebuildFromCurrentProgress();
     };
-    // Tab 切换回 Learn 页也应该刷新（Home/Practice 切回来）
+    // Tab 切换回 Learn 页也应该刷新
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') rebuildFromCurrentProgress();
     };
-    // Settings 页清除数据时派发的自定义事件（同一 tab 内有效）
+    // Settings 页清除数据 / Practice 页答题完成时派发的自定义事件
     const onCleared = () => rebuildFromCurrentProgress();
-    window.addEventListener('storage', onStorage);
+    const onLearningUpdated = () => rebuildFromCurrentProgress();
     window.addEventListener('focus', onFocus);
     window.addEventListener('learning-data:cleared', onCleared);
+    window.addEventListener('learning-data:updated', onLearningUpdated);
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      window.removeEventListener('storage', onStorage);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('learning-data:cleared', onCleared);
+      window.removeEventListener('learning-data:updated', onLearningUpdated);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [rebuildFromCurrentProgress]);

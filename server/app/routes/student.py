@@ -16,10 +16,13 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 async def create_student(
     payload: StudentCreate, db: aiosqlite.Connection = Depends(get_db)
 ):
-    student_id = f"student-{uuid.uuid4().hex[:8]}"
+    # 支持客户端指定 id（浏览器端 web-xxxx），否则 server 生成
+    student_id = payload.id or f"student-{uuid.uuid4().hex[:8]}"
+
+    # INSERT OR IGNORE：幂等——同一 id 重复创建不报错
     await db.execute(
         """
-        INSERT INTO students (id, name, grade, avatar)
+        INSERT OR IGNORE INTO students (id, name, grade, avatar)
         VALUES (?, ?, ?, ?)
         """,
         (student_id, payload.name, payload.grade, payload.avatar),
@@ -48,7 +51,16 @@ async def get_student(student_id: str, db: aiosqlite.Connection = Depends(get_db
     ) as cur:
         row = await cur.fetchone()
     if row is None:
-        raise HTTPException(status_code=404, detail="学生不存在")
+        # 新用户自动创建兜底（避免 ensureStudentExists 竞态窗口内 404）
+        await db.execute(
+            "INSERT OR IGNORE INTO students (id, name, grade) VALUES (?, ?, 6)",
+            (student_id, f"同学{student_id[-4:]}"),
+        )
+        await db.commit()
+        async with db.execute(
+            "SELECT * FROM students WHERE id = ?", (student_id,)
+        ) as cur2:
+            row = await cur2.fetchone()
     return ok(row_to_dict(row))
 
 
@@ -63,6 +75,10 @@ async def clear_student_data(
         "chat_records",
         "daily_stats",
         "learning_sessions",
+        "behavior_features",
+        "student_states",
+        "event_logs",
+        "hint_records",
     ]
     for t in tables:
         await db.execute(f"DELETE FROM {t} WHERE student_id = ?", (student_id,))

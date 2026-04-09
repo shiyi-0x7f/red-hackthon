@@ -33,3 +33,5 @@ _deploy.tar.gz
 # Server venv
 server/.venv/
 server/*.db
+
+/antigravity-auto-retry
