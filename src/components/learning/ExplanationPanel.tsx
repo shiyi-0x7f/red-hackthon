@@ -6,8 +6,9 @@ import 'katex/dist/katex.min.css';
 import { explainService, type ExplanationDonePayload } from '../../services';
 import JSXBoard, { type JSXBoardSpec } from './JSXBoard';
 import FractionBar, { type FractionBarSpec } from './FractionBar';
+import ManimPlayer, { type ManimPlayerSpec, ManimLoadingPlaceholder } from './ManimPlayer';
 
-type VisualSpec = JSXBoardSpec | FractionBarSpec | { type: 'none' };
+type VisualSpec = JSXBoardSpec | FractionBarSpec | ManimPlayerSpec | { type: 'none' };
 
 interface Props {
   open: boolean;
@@ -47,6 +48,7 @@ function renderMixed(text: string): string {
 const ExplanationPanel: React.FC<Props> = ({ open, questionId, studentId, sessionId, onClose }) => {
   const [streamText, setStreamText] = useState('');
   const [visualSpec, setVisualSpec] = useState<VisualSpec | null>(null);
+  const [manimLoading, setManimLoading] = useState<string | null>(null); // manim 渲染中标题
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef<string>('');
@@ -60,6 +62,7 @@ const ExplanationPanel: React.FC<Props> = ({ open, questionId, studentId, sessio
       cleanupRef.current = null;
       setStreamText('');
       setVisualSpec(null);
+      setManimLoading(null);
       setError(null);
       return;
     }
@@ -69,6 +72,7 @@ const ExplanationPanel: React.FC<Props> = ({ open, questionId, studentId, sessio
     requestIdRef.current = requestId;
     setStreamText('');
     setVisualSpec(null);
+    setManimLoading(null);
     setError(null);
     setLoading(true);
 
@@ -85,10 +89,18 @@ const ExplanationPanel: React.FC<Props> = ({ open, questionId, studentId, sessio
           },
           (payload: ExplanationDonePayload) => {
             if (cancelled) return;
+            const v = payload.visual_spec;
+
+            // 处理 manim 中间状态（渲染中）
+            if (v && v.type === 'manim-loading') {
+              setManimLoading((v.title as string) || '数学动画');
+              return; // 不结束 loading，继续等待最终 done
+            }
+
             setLoading(false);
+            setManimLoading(null);
             // 替换为完整文本（防止流式截断）
             if (payload.full_text) setStreamText(payload.full_text);
-            const v = payload.visual_spec;
             if (v && v.type !== 'none') {
               setVisualSpec(v as VisualSpec);
             }
@@ -149,6 +161,12 @@ const ExplanationPanel: React.FC<Props> = ({ open, questionId, studentId, sessio
               <div className="explanation-title">
                 <BulbOutlined /> AI 讲解
                 {loading && <span className="explanation-loading-dot">…</span>}
+                {manimLoading && (
+                  <span className="manim-header-badge">
+                    <span className="manim-header-spinner" />
+                    动画生成中
+                  </span>
+                )}
               </div>
               <button className="explanation-close" onClick={onClose} aria-label="关闭">
                 <CloseOutlined />
@@ -182,6 +200,16 @@ const ExplanationPanel: React.FC<Props> = ({ open, questionId, studentId, sessio
               {visualSpec && visualSpec.type === 'fraction-bar' && (
                 <div className="explanation-visual">
                   <FractionBar spec={visualSpec} />
+                </div>
+              )}
+              {visualSpec && visualSpec.type === 'manim' && (
+                <div className="explanation-visual">
+                  <ManimPlayer spec={visualSpec as ManimPlayerSpec} />
+                </div>
+              )}
+              {!visualSpec && manimLoading && (
+                <div className="explanation-visual">
+                  <ManimLoadingPlaceholder title={manimLoading} />
                 </div>
               )}
             </div>

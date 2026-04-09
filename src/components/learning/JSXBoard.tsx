@@ -47,7 +47,7 @@ const JSXBoard: React.FC<Props> = ({ spec, height = 320 }) => {
         axis: spec.axis ?? true,
         showCopyright: spec.showCopyright ?? false,
         showNavigation: false,
-        keepAspectRatio: false,
+        keepAspectRatio: true,
         pan: { enabled: false, needTwoFingers: false, needShift: false },
       });
 

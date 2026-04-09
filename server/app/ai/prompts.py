@@ -99,6 +99,115 @@ def system_persona_stream(grade: int) -> str:
 """
 
 
+def system_persona_stream_with_context(grade: int, ctx: dict) -> str:
+    """流式对话 + 学生画像 RAG — 基于真实数据给出个性化回复
+
+    ctx 字典结构:
+        total_questions, correct_count, accuracy  — 答题统计
+        weak_topics   — list[dict(name, mastery)]  薄弱知识点
+        strong_topics — list[dict(name, mastery)]  擅长知识点
+        recent_errors — list[dict(content, error_type)]  最近错题
+        interests     — list[dict(category, name)]  兴趣爱好
+        background    — dict(nickname, hobby_summary, dream)  学生背景
+        learning_days — int  学习天数
+        total_duration_minutes — int  总学习时长(分钟)
+    """
+    base = system_persona_stream(grade)
+
+    # ── 构建学生画像段落 ──
+    sections: list[str] = []
+
+    # 1) 答题统计
+    total = ctx.get("total_questions", 0)
+    correct = ctx.get("correct_count", 0)
+    accuracy = ctx.get("accuracy", 0)
+    days = ctx.get("learning_days", 0)
+    duration = ctx.get("total_duration_minutes", 0)
+    if total > 0:
+        sections.append(
+            f"- 累计答了 {total} 道题，做对 {correct} 道，"
+            f"正确率 {accuracy:.0%}"
+        )
+    if days > 0:
+        sections.append(f"- 已学习 {days} 天，总学习时长约 {duration} 分钟")
+
+    # 2) 薄弱知识点
+    weak = ctx.get("weak_topics") or []
+    if weak:
+        weak_str = "、".join(
+            f"{t['name']}(掌握度{t['mastery']:.0%})" for t in weak[:5]
+        )
+        sections.append(f"- 薄弱知识点：{weak_str}")
+
+    # 3) 擅长知识点
+    strong = ctx.get("strong_topics") or []
+    if strong:
+        strong_str = "、".join(t["name"] for t in strong[:3])
+        sections.append(f"- 擅长的知识点：{strong_str}")
+
+    # 4) 最近错题
+    errors = ctx.get("recent_errors") or []
+    if errors:
+        error_lines = []
+        error_type_map = {
+            "conceptual": "概念错误",
+            "procedural": "步骤错误",
+            "careless": "粗心",
+            "strategic": "策略错误",
+        }
+        for e in errors[:3]:
+            etype = error_type_map.get(e.get("error_type", ""), "未知")
+            content = (e.get("content") or "")[:40]
+            error_lines.append(f"  · {content}（{etype}）")
+        sections.append("- 最近做错的题：\n" + "\n".join(error_lines))
+
+    # 5) 兴趣爱好
+    interests = ctx.get("interests") or []
+    if interests:
+        cat_map = {
+            "hobby": "爱好", "book": "读物", "movie": "影视",
+            "music": "音乐", "sport": "运动", "food": "美食",
+            "family": "家庭", "other": "其他",
+        }
+        items = [
+            f"{cat_map.get(i.get('category', ''), '其他')}:{i['name']}"
+            for i in interests[:6]
+        ]
+        sections.append(f"- 兴趣爱好：{'、'.join(items)}")
+
+    # 6) 学生背景
+    bg = ctx.get("background") or {}
+    bg_parts = []
+    if bg.get("nickname"):
+        bg_parts.append(f"希望被叫「{bg['nickname']}」")
+    if bg.get("hobby_summary"):
+        bg_parts.append(f"兴趣简述：{bg['hobby_summary']}")
+    if bg.get("dream"):
+        bg_parts.append(f"梦想：{bg['dream']}")
+    if bg_parts:
+        sections.append(f"- 个人背景：{'；'.join(bg_parts)}")
+
+    if not sections:
+        # 没有任何 RAG 数据，退回基础模板
+        return base
+
+    profile_block = "\n".join(sections)
+
+    return base + f"""
+## 该学生的学习画像（重要，请根据这些数据个性化回复）
+{profile_block}
+
+## 回复策略（结合学生画像）
+- 当学生问"进度"、"学了多少"时：用上面的答题统计和掌握度数据，具体回答
+- 当学生说"复习"、"回顾"时：优先推荐薄弱知识点，引导去练习
+- 当学生说"出题"、"考考我"时：建议从薄弱知识点出发
+- 当学生闲聊时：可以自然地结合他的兴趣爱好聊天，拉近距离
+- 当学生抱怨"太难"、"不会"时：根据最近错题类型，给出针对性安慰和建议
+- 如果学生有昵称，用昵称称呼他
+- 回复中引用具体数据时，用自然口语化表达，不要像念报告
+"""
+
+
 def evaluate_answer(question: str, correct_answer: str, student_answer: str, grade: int) -> str:
     """判题 Prompt - 规则判题不确定时由 LLM 兜底"""
     return f"""你是一个{grade}年级的小学数学老师，请判断学生的答案是否正确，并分析错误原因。
@@ -238,15 +347,26 @@ def generate_question(
     difficulty: int,
     weak_topics: list[str],
     interest_context: str,
+    error_pattern: str = "",
 ) -> str:
-    """AI 动态出题"""
+    """AI 动态出题 — 融合学生画像
+
+    参数:
+        weak_topics: 学生薄弱知识点名称列表
+        interest_context: 学生兴趣/背景描述段落
+        error_pattern: 基于错题类型分布的出题指导
+    """
     weak_hint = ""
     if weak_topics:
         weak_hint = f"\n\n该学生最薄弱的知识点是：{'、'.join(weak_topics)}。如可能，让题目和这些薄弱点相关。"
 
     interest_hint = ""
     if interest_context:
-        interest_hint = f"\n\n该学生的兴趣背景：\n{interest_context}\n\n请在题目的情境里尽量融入他喜欢的话题（比如他喜欢足球就用「射门命中率」做百分数题），让题目对他更有吸引力。"
+        interest_hint = f"\n\n该学生的兴趣背景：\n{interest_context}\n\n请在题目的情境里尽量融入他喜欢的话题（比如他喜欢足球就用「射门命中率」做百分数题），让题目对他更有吸引力。不要生硬堆砌，要自然融入。"
+
+    error_hint = ""
+    if error_pattern:
+        error_hint = f"\n\n## 针对性出题要求\n{error_pattern}"
 
     diff_map = {
         1: "非常基础（直接套公式）",
@@ -261,7 +381,7 @@ def generate_question(
 要求：
 - 单元：{unit}
 - 难度：{diff_label}（1~5 等级中的 {difficulty}）
-- 题型从以下选一种：填空题 / 计算题 / 应用题 / 判断题 / 比较题{weak_hint}
+- 题型从以下选一种：填空题 / 计算题 / 应用题 / 判断题 / 比较题{weak_hint}{error_hint}
 
 严格按以下 JSON 格式输出，不要 markdown 代码块包裹，不要任何额外文字：
 {{
@@ -305,8 +425,8 @@ def explain_text_only(question: str, correct_answer: str, grade: int, unit: str)
 
 
 def visual_plan(question: str, correct_answer: str, unit: str) -> str:
-    """Agent 1 · 可视化规划 - 判断是否需要几何可视化"""
-    return f"""你是数学可视化规划师。判断下面这道小学数学题是否需要用一个可交互的几何图形（用 JSXGraph 渲染）帮学生理解。
+    """Agent · 可视化规划 - 从 4 种可视化方式中选择最适合的"""
+    return f"""你是数学可视化规划师。判断下面这道小学数学题最适合用哪种方式辅助讲解。
 
 题目：{question}
 答案：{correct_answer}
@@ -314,21 +434,41 @@ def visual_plan(question: str, correct_answer: str, unit: str) -> str:
 
 === 严格 JSON 输出，不要 markdown 代码块包裹 ===
 {{
-  "needs_visual": true/false,
-  "description": "如 needs_visual=true，用 1~2 句中文描述要画什么几何元素；否则留空"
+  "visual_type": "jsxgraph" | "manim" | "fraction-bar" | "none",
+  "description": "用 1~2 句中文描述要呈现什么；如果 visual_type 为 none 则留空"
 }}
 
-=== 判断规则 ===
-- **only geometry**：只有当题目的核心是几何图形（圆、三角形、多边形、立体、角度、坐标）且画一张图确实能帮助理解时，才 needs_visual=true
-- 纯分数 / 整数 / 小数 / 百分数**运算题** → needs_visual=false
-- 位置与方向 / 路线规划 → needs_visual=false
-- 应用题如果核心不是几何图形 → needs_visual=false
-- 统计图 / 扇形统计图类 → needs_visual=false
-- 仅出现「面积 / 周长 / 体积」但实际是公式代入的代数计算 → needs_visual=false"""
+=== 四种可视化方式及适用场景 ===
+
+1. **jsxgraph**（交互式几何图）
+   - 适用：题目核心是几何图形（圆、三角形、多边形、角度、坐标点、函数图像）
+   - 用户可以拖动、交互
+   - 例：「画一个三角形 ABC 并标注角度」「在坐标系中画出点的位置」
+
+2. **manim**（数学动画视频）
+   - 适用：需要展示**推导过程、变换步骤、数列规律、公式推导**的题目
+   - 动态演示计算步骤，像数学课视频一样一步步展示
+   - 例：「展示分数乘法的通分过程」「动画演示方程两边同时操作」「展示数列规律」
+   - 例：「展示面积公式的推导过程」「动画演示进位加法的竖式计算」
+
+3. **fraction-bar**（分数/百分比条形图）
+   - 适用：纯分数比较、百分比大小对比的简单题
+   - 例：「比较 1/3 和 2/5 的大小」
+
+4. **none**（无需可视化）
+   - 适用：简单概念题、口算题、不需要视觉辅助的纯计算题
+   - 例：「25 × 4 = ？」「判断：0 是自然数吗？」
+
+=== 判断优先级 ===
+- 几何图形为核心 → jsxgraph
+- 有推导/变换/步骤展示需求 → manim
+- 纯分数/百分比比较 → fraction-bar
+- 以上都不适合 → none
+- 如果拿不准，优先选 none（避免无意义的可视化）"""
 
 
 def visual_render(description: str) -> str:
-    """Agent 2 · JSXGraph 渲染 Prompt"""
+    """Agent · JSXGraph 渲染 Prompt"""
     return f"""你是 JSXGraph 可视化专家。根据下面的描述生成一个 JSXGraph 图示规格。
 
 描述：{description}
@@ -362,3 +502,42 @@ def visual_render(description: str) -> str:
 - 点名用大写字母，标注简洁
 - 只返回 JSON，不要解释
 - 如果无法用上述 kind 表达，输出 {{"type": "none"}}"""
+
+
+def manim_render(question: str, correct_answer: str, description: str) -> str:
+    """Agent · Manim 动画代码生成 Prompt"""
+    return f"""你是 Manim Community (manim) 动画专家。请为下面的数学讲解生成一段简洁的 Manim 动画代码。
+
+题目：{question}
+答案：{correct_answer}
+动画描述：{description}
+
+=== 输出要求 ===
+只输出纯 Python 代码，不要 markdown 代码块包裹，不要任何解释文字。
+
+=== 代码模板（必须遵循） ===
+from manim import *
+
+class ExplainScene(Scene):
+    def construct(self):
+        # 你的动画代码
+
+=== 可用的 Manim 元素 ===
+- 文字: Text("内容", font_size=36, color=WHITE), MathTex(r"\\frac{{1}}{{2}}")
+- 形状: Circle(), Square(), Rectangle(), Triangle(), Line(), Arrow(), Dot()
+- 变换: self.play(Write(obj)), self.play(Transform(a, b)), self.play(FadeIn(obj))
+- 分组: VGroup(a, b).arrange(RIGHT)
+- 等待: self.wait(1)
+- 颜色: BLUE, RED, GREEN, YELLOW, ORANGE, PURPLE, WHITE, GOLD
+
+=== 严格约束 ===
+1. 类名必须是 ExplainScene
+2. 动画总时长不超过 15 秒（控制 self.wait 和动画数量）
+3. 最多 8 个动画步骤（self.play 调用次数）
+4. 不要使用 SVGMobject 或外部文件
+5. 不要 import 除 manim 以外的任何模块
+6. 不要使用 os, sys, subprocess, shutil, __import__ 等系统调用
+7. 文字使用中文时用 Text()，数学公式用 MathTex()
+8. 字体大小适中（Text 用 32~40，MathTex 用默认）
+9. 动画要有教学意义，像数学课视频一样一步步展示推导过程
+10. 保持代码简洁，不超过 40 行"""

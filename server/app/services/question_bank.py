@@ -116,20 +116,56 @@ class QuestionBank:
         return result
 
     def quiz_for_unit(self, unit: str, count: int) -> list[BaseQuestion]:
-        return self.questions_for_unit(unit)[:count]
+        qs = self.questions_for_unit(unit)
+        if qs:
+            return qs[:count]
+        # 模糊匹配：从复习页跳转时，knowledge_nodes.name 可能和 bank unit 不完全一致
+        for bank_unit in self.unit_names():
+            if unit in bank_unit or bank_unit in unit:
+                qs = self.questions_for_unit(bank_unit)
+                if qs:
+                    logger.info(f"quiz_for_unit 模糊匹配: '{unit}' → '{bank_unit}'")
+                    return qs[:count]
+        return []
 
     def adaptive_quiz(
-        self, mastery_data: dict[str, float], count: int
+        self,
+        mastery_data: dict[str, float],
+        count: int,
+        *,
+        recommended_difficulty: int = 2,
+        error_types: dict[str, int] | None = None,
+        fatigue: float = 0.0,
     ) -> list[BaseQuestion]:
-        """自适应选题 - 按掌握度决定难度偏好
+        """自适应选题 - 按掌握度 + 学生状态决定选题偏好
 
         - mastery < 0.4 → 薄弱，偏好简单题
         - 0.4 ~ 0.7     → 中等，偏好中等题
         - > 0.7         → 较好，偏好难题
+
+        增强：
+        - fatigue > 0.5 → 整体偏好低难度题（让学生找回信心）
+        - error_types 中 conceptual 多 → 偏好概念辨析题（判断/填空）
+        - recommended_difficulty → 作为选题中心难度
         """
+        # 难度偏好中心：综合 recommended_difficulty 和 fatigue
+        center_diff = recommended_difficulty
+        if fatigue > 0.5:
+            center_diff = max(1, center_diff - 1)
+
+        # 是否偏好概念辨析题型
+        prefer_concept_types = False
+        if error_types:
+            conceptual_count = error_types.get("conceptual", 0)
+            total_errors = sum(error_types.values())
+            if total_errors > 0 and conceptual_count / total_errors > 0.4:
+                prefer_concept_types = True
+
         candidates: list[tuple[float, BaseQuestion]] = []
         for q in self.questions:
             mastery = mastery_data.get(q.unit, 0.0)
+
+            # 基础优先级：薄弱知识点优先
             if mastery < 0.4:
                 priority = (1.0 - mastery) + (0.3 if q.difficulty <= 2 else 0.0)
             elif mastery < 0.7:
@@ -138,7 +174,17 @@ class QuestionBank:
                 )
             else:
                 priority = (0.3 - mastery * 0.2) if q.difficulty >= 3 else 0.1
+
+            # 难度对齐奖励：难度越接近推荐中心，优先级越高
+            diff_distance = abs(q.difficulty - center_diff)
+            priority += max(0, 0.3 - diff_distance * 0.15)
+
+            # 概念辨析题型奖励：当学生概念错误多时偏好判断/填空
+            if prefer_concept_types and q.question_type in ("判断题", "填空题"):
+                priority += 0.2
+
             candidates.append((priority, q))
 
         candidates.sort(key=lambda pair: pair[0], reverse=True)
         return [q for _, q in candidates[:count]]
+

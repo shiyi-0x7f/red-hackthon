@@ -92,6 +92,19 @@ def create_app() -> FastAPI:
     app.include_router(chat.router, prefix=api_prefix, tags=["chat"])
 
     # ==========================================================================
+    # Manim 渲染视频静态挂载
+    # ==========================================================================
+    from .services.manim_service import MANIM_OUTPUT_DIR
+
+    MANIM_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount(
+        "/media/manim",
+        StaticFiles(directory=str(MANIM_OUTPUT_DIR)),
+        name="manim-media",
+    )
+    logger.info(f"挂载 Manim 视频目录: {MANIM_OUTPUT_DIR}")
+
+    # ==========================================================================
     # 前端 SPA 挂载（B1 部署方案 — 同域部署）
     # ==========================================================================
     # 仅当 FRONTEND_DIST_DIR 目录存在且包含 index.html 时启用。

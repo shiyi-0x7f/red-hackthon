@@ -680,6 +680,17 @@ export interface ExplanationDonePayload {
   from_cache: boolean;
 }
 
+/** 中间事件：manim 渲染中 / 渲染失败 */
+export interface ExplainVisualLoadingPayload {
+  type: string;
+  status: 'rendering';
+  title?: string;
+}
+export interface ExplainVisualErrorPayload {
+  type: string;
+  error: string;
+}
+
 export const explainService = {
   /** 启动一次流式讲解（事件监听需要先 subscribe） */
   start: async (
@@ -713,12 +724,35 @@ export const explainService = {
             fullText += ev.data;
             entry.onChunk?.(ev.data);
           } else if (ev.event === 'visual') {
+            // 后端返回 JSON，type 字段已说明是 jsxgraph / manim / fraction-bar
             try {
               const parsed = JSON.parse(ev.data);
-              visualSpec = { type: 'jsxgraph', ...parsed };
+              // 使用 parsed 中的 type（而不是硬编码 jsxgraph）
+              if (parsed.type && parsed.type !== 'none') {
+                visualSpec = parsed;
+              }
             } catch {
               // 解析失败就当没 visual
             }
+          } else if (ev.event === 'visual_loading') {
+            // Manim 渲染中的中间状态通知
+            try {
+              const info = JSON.parse(ev.data) as ExplainVisualLoadingPayload;
+              // 通过 onChunk 传递特殊标记，让 ExplanationPanel 显示加载状态
+              // 利用 onDone 的 visual_spec 传一个临时 loading 标记
+              entry.onDone?.({
+                request_id: requestId,
+                full_text: fullText,
+                visual_spec: { type: 'manim-loading', title: info.title || '' },
+                from_cache: false,
+              } as ExplanationDonePayload);
+            } catch { /* ignore */ }
+          } else if (ev.event === 'visual_error') {
+            // Manim 渲染失败 — 忽略，不影响文字讲解
+            try {
+              const info = JSON.parse(ev.data) as ExplainVisualErrorPayload;
+              console.warn('[explain] Manim 渲染失败:', info.error);
+            } catch { /* ignore */ }
           } else if (ev.event === 'error') {
             entry.onError?.(new Error(ev.data));
             return;

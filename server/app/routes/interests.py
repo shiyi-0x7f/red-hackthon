@@ -20,7 +20,7 @@ async def list_interests(
     student_id: str, db: aiosqlite.Connection = Depends(get_db)
 ):
     async with db.execute(
-        "SELECT * FROM student_interests WHERE student_id = ? ORDER BY created_at DESC",
+        "SELECT * FROM interest_profile WHERE student_id = ? ORDER BY created_at DESC",
         (student_id,),
     ) as cur:
         rows = await cur.fetchall()
@@ -33,15 +33,13 @@ async def add_interest(
     payload: InterestCreate,
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    iid = f"int-{uuid.uuid4().hex[:8]}"
     await db.execute(
         """
-        INSERT INTO student_interests
-          (id, student_id, category, name, affinity, notes, source)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT OR IGNORE INTO interest_profile
+          (student_id, category, name, affinity, notes, source)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
-            iid,
             student_id,
             payload.category,
             payload.name,
@@ -51,14 +49,17 @@ async def add_interest(
         ),
     )
     await db.commit()
-    return ok({"id": iid})
+    # 返回插入的 id（autoincrement）
+    async with db.execute("SELECT last_insert_rowid() AS id") as cur:
+        row = await cur.fetchone()
+    return ok({"id": row["id"] if row else 0})
 
 
 @router.delete("/interests/{interest_id}")
 async def delete_interest(
     interest_id: str, db: aiosqlite.Connection = Depends(get_db)
 ):
-    await db.execute("DELETE FROM student_interests WHERE id = ?", (interest_id,))
+    await db.execute("DELETE FROM interest_profile WHERE id = ?", (interest_id,))
     await db.commit()
     return ok({"deleted": interest_id})
 
@@ -92,17 +93,21 @@ async def extract_from_text(payload: dict):
 async def get_background(
     student_id: str, db: aiosqlite.Connection = Depends(get_db)
 ):
-    async with db.execute(
-        "SELECT * FROM student_background WHERE student_id = ?", (student_id,)
-    ) as cur:
-        row = await cur.fetchone()
+    try:
+        async with db.execute(
+            "SELECT * FROM student_background WHERE student_id = ?", (student_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    except Exception:
+        row = None
     if row is None:
         return ok(
             {
                 "student_id": student_id,
-                "hobbies": "",
-                "family": "",
-                "notes": "",
+                "nickname": "",
+                "hobby_summary": "",
+                "family_notes": "",
+                "dream": "",
             }
         )
     return ok(row_to_dict(row))
@@ -116,15 +121,16 @@ async def update_background(
 ):
     await db.execute(
         """
-        INSERT INTO student_background (student_id, hobbies, family, notes, updated_at)
+        INSERT INTO student_background (student_id, hobby_summary, family_notes, dream, updated_at)
         VALUES (?, ?, ?, ?, datetime('now'))
         ON CONFLICT(student_id) DO UPDATE SET
-          hobbies = excluded.hobbies,
-          family = excluded.family,
-          notes = excluded.notes,
+          hobby_summary = excluded.hobby_summary,
+          family_notes = excluded.family_notes,
+          dream = excluded.dream,
           updated_at = datetime('now')
         """,
         (student_id, payload.hobbies, payload.family, payload.notes),
     )
     await db.commit()
     return ok({"student_id": student_id})
+

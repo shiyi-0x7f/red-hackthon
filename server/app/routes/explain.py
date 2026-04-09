@@ -1,4 +1,10 @@
-"""讲解与提示路由 - SSE 流式讲解 + 分层提示"""
+"""讲解与提示路由 - SSE 流式讲解 + 分层提示
+
+可视化 Agent 流程：
+1. Agent 1: 纯文字讲解（流式输出）
+2. Agent 2: 可视化规划（判断 jsxgraph / manim / fraction-bar / none）
+3. Agent 3: 根据规划调用对应渲染器
+"""
 import json
 import logging
 
@@ -7,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
 from ..ai.llm_client import LLMOptions, Message, get_llm_client
-from ..ai.prompts import explain_text_only, layered_hint, visual_plan, visual_render
+from ..ai.prompts import explain_text_only, layered_hint, manim_render, visual_plan, visual_render
 from ..db.connection import get_db
 from ..schemas.common import ok
 from ..schemas.question import HintRequest
@@ -17,26 +23,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_api_key)])
 
 
-_GEOMETRY_KEYWORDS = (
-    "圆",
-    "三角形",
-    "多边形",
-    "角",
-    "平行",
-    "垂直",
-    "面积",
-    "周长",
-    "体积",
-    "立方",
-    "圆柱",
-    "圆锥",
-    "坐标",
-    "几何",
-)
-
-
-def _has_geometry_hint(text: str) -> bool:
-    return any(k in text for k in _GEOMETRY_KEYWORDS)
+def _parse_json_from_llm(text: str) -> dict | None:
+    """从 LLM 输出中提取 JSON（容错处理 markdown 包裹）"""
+    text = text.strip()
+    # 去掉 ```json ... ``` 包裹
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1] if "\n" in text else text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return None
 
 
 @router.get("/explain/stream")
@@ -44,9 +43,10 @@ async def explain_stream(
     question_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ):
-    """SSE 流式讲解，两层 agent：
-    1. 纯文字讲解（第一个 LLM 调用）
-    2. （可选）视觉规划 + JSXGraph 渲染（第二个 LLM 调用，仅当命中几何关键词）
+    """SSE 流式讲解，多层 Agent：
+    1. 纯文字讲解（第一个 LLM 调用，流式）
+    2. 可视化规划 — AI 从 jsxgraph/manim/fraction-bar/none 中选择最佳方式
+    3. 对应的渲染 Agent（JSXGraph JSON / Manim 代码执行）
     """
     async with db.execute(
         "SELECT * FROM questions WHERE id = ?", (question_id,)
@@ -65,7 +65,7 @@ async def explain_stream(
         raise HTTPException(status_code=500, detail="未配置 SILICONFLOW_API_KEY")
 
     async def event_generator():
-        # Agent 1: 纯文字讲解
+        # ── Agent 1: 纯文字讲解（流式） ──
         try:
             prompt = explain_text_only(
                 question=question_content,
@@ -83,36 +83,151 @@ async def explain_stream(
             yield {"event": "error", "data": str(e)}
             return
 
-        # Agent 2: 几何可视化（仅命中关键词时才跑，节省 token）
-        if _has_geometry_hint(question_content):
+        # ── Agent 2: 可视化规划（所有题目都跑，由 AI 决定用什么） ──
+        try:
+            plan_text = await client.complete(
+                [
+                    Message(
+                        role="user",
+                        content=visual_plan(
+                            question=question_content,
+                            correct_answer=correct_answer,
+                            unit=unit,
+                        ),
+                    )
+                ],
+                LLMOptions(temperature=0.2, max_tokens=256),
+            )
+            plan = _parse_json_from_llm(plan_text)
+            if plan is None:
+                logger.warning(f"可视化规划 JSON 解析失败: {plan_text[:200]}")
+                plan = {"visual_type": "none", "description": ""}
+
+            visual_type = plan.get("visual_type", "none")
+            description = plan.get("description", "")
+
+            logger.info(
+                f"可视化规划: type={visual_type}, desc={description[:50]}"
+            )
+
+        except Exception as e:
+            logger.warning(f"可视化规划失败（忽略）: {e}")
+            visual_type = "none"
+            description = ""
+
+        # ── Agent 3: 根据规划渲染可视化 ──
+
+        if visual_type == "jsxgraph" and description:
+            # JSXGraph 渲染
             try:
-                plan_text = await client.complete(
+                render_text = await client.complete(
                     [
                         Message(
                             role="user",
-                            content=visual_plan(
+                            content=visual_render(description),
+                        )
+                    ],
+                    LLMOptions(temperature=0.2, max_tokens=512),
+                )
+                parsed = _parse_json_from_llm(render_text)
+                if parsed and parsed.get("type") != "none":
+                    yield {
+                        "event": "visual",
+                        "data": json.dumps(parsed, ensure_ascii=False),
+                    }
+            except Exception as e:
+                logger.warning(f"JSXGraph 渲染失败（忽略）: {e}")
+
+        elif visual_type == "manim" and description:
+            # Manim 动画渲染
+            try:
+                # 先通知前端 Manim 渲染开始
+                yield {
+                    "event": "visual_loading",
+                    "data": json.dumps(
+                        {"type": "manim", "status": "rendering", "title": description[:20]},
+                        ensure_ascii=False,
+                    ),
+                }
+
+                # Agent 3: 生成 Manim 代码
+                manim_code = await client.complete(
+                    [
+                        Message(
+                            role="user",
+                            content=manim_render(
                                 question=question_content,
                                 correct_answer=correct_answer,
-                                unit=unit,
+                                description=description,
                             ),
                         )
                     ],
+                    LLMOptions(temperature=0.3, max_tokens=1024),
+                )
+
+                # 执行 Manim 渲染
+                from ..services.manim_service import ManimRenderError, render_manim
+
+                video_path = await render_manim(manim_code)
+                video_url = f"/media/manim/{video_path}"
+
+                yield {
+                    "event": "visual",
+                    "data": json.dumps(
+                        {
+                            "type": "manim",
+                            "title": description[:20],
+                            "video_url": video_url,
+                        },
+                        ensure_ascii=False,
+                    ),
+                }
+            except ManimRenderError as e:
+                logger.warning(f"Manim 渲染失败: {e}")
+                yield {
+                    "event": "visual_error",
+                    "data": json.dumps(
+                        {"type": "manim", "error": str(e)},
+                        ensure_ascii=False,
+                    ),
+                }
+            except Exception as e:
+                logger.warning(f"Manim 流程异常: {e}")
+
+        elif visual_type == "fraction-bar" and description:
+            # 分数条 — 简单的类型，由 LLM 直接给 parts
+            try:
+                fb_prompt = f"""根据下面的描述，生成一个分数/百分比条形图 JSON。
+
+描述：{description}
+题目：{question_content}
+答案：{correct_answer}
+
+严格 JSON 输出，不要 markdown 代码块包裹：
+{{
+  "type": "fraction-bar",
+  "title": "图示标题",
+  "parts": [
+    {{"label": "标签", "value": 0.5, "color": "#FF8C42"}}
+  ]
+}}
+
+颜色：#FF8C42 暖橙 / #00B5C8 湖青 / #F5A623 金黄 / #5BC97F 绿 / #E57373 红"""
+
+                fb_text = await client.complete(
+                    [Message(role="user", content=fb_prompt)],
                     LLMOptions(temperature=0.2, max_tokens=256),
                 )
-                plan = json.loads(plan_text.strip().strip("```json").strip("```").strip())
-                if plan.get("needs_visual") and plan.get("description"):
-                    render_text = await client.complete(
-                        [
-                            Message(
-                                role="user",
-                                content=visual_render(plan["description"]),
-                            )
-                        ],
-                        LLMOptions(temperature=0.2, max_tokens=512),
-                    )
-                    yield {"event": "visual", "data": render_text}
+                parsed = _parse_json_from_llm(fb_text)
+                if parsed and parsed.get("type") == "fraction-bar":
+                    yield {
+                        "event": "visual",
+                        "data": json.dumps(parsed, ensure_ascii=False),
+                    }
             except Exception as e:
-                logger.warning(f"可视化生成失败（忽略）: {e}")
+                logger.warning(f"FractionBar 生成失败（忽略）: {e}")
+
+        # visual_type == "none" → 不做任何可视化
 
         yield {"event": "done", "data": "[DONE]"}
 

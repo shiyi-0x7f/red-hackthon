@@ -206,6 +206,152 @@
   padding: 0 4px;
 }
 
+/* ---------- Manim 动画播放器 ---------- */
+.manim-player-wrap {
+  width: 100%;
+}
+.manim-player-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2D2A26;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.manim-player-video-container {
+  position: relative;
+  width: 100%;
+  background: #1a1a2e;
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.manim-player-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 12px;
+}
+
+.manim-player-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.manim-player-overlay:hover {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.manim-play-icon {
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3));
+}
+
+.manim-player-loading,
+.manim-player-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+}
+
+.manim-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #FF8C42;
+  border-radius: 50%;
+  animation: manim-spin 0.8s linear infinite;
+}
+
+.manim-player-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(26, 26, 46, 0.08);
+  border-radius: 0 0 12px 12px;
+  margin-top: -4px;
+}
+
+.manim-ctrl-btn {
+  background: none;
+  border: none;
+  color: #FF8C42;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.15s, transform 0.15s;
+}
+.manim-ctrl-btn:hover {
+  background: rgba(255, 140, 66, 0.12);
+  transform: scale(1.1);
+}
+
+.manim-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: #F0E5D6;
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.manim-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FF8C42, #00B5C8);
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+/* Manim 渲染中占位状态 */
+.manim-rendering .manim-rendering-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 36px 20px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border-radius: 12px;
+}
+
+.manim-rendering-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top-color: #FF8C42;
+  border-right-color: #00B5C8;
+  border-radius: 50%;
+  animation: manim-spin 1s linear infinite;
+}
+
+.manim-rendering-text {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 15px;
+  font-weight: 600;
+}
+.manim-rendering-sub {
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 12px;
+}
+
+@keyframes manim-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ---------- 分层提示 ---------- */
 .hint-panel {
   margin-top: 16px;
@@ -412,17 +558,26 @@
   width: auto;
   max-height: calc(100vh - 140px);
   overflow-y: auto;
-  background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 12px 30px rgba(44, 36, 120, 0.12);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 20px;
+  box-shadow: 0 16px 40px rgba(44, 36, 120, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.8);
   padding: 18px 20px;
   margin: var(--space-xl) var(--space-lg) var(--space-lg) 0;
   z-index: 10;
   font-size: 13px;
   color: #2D2A26;
 }
+
 @media (max-width: 900px) {
-  .student-dashboard { display: none; }
+  .student-dashboard {
+    position: relative;
+    max-height: none;
+    margin: 0 var(--space-lg) var(--space-lg);
+    grid-column: 1;
+    grid-row: auto;
+  }
 }
 
 .dash-loading {
@@ -1239,145 +1394,311 @@
 }
 
 /* =========================================================
-   兴趣画像
+   兴趣画像 — 可爱卡片风格 (redesigned)
    ========================================================= */
 .interest-profile-card {
   margin-top: 24px;
 }
 
-.interest-loading {
-  padding: 20px 0;
-  text-align: center;
-  color: #A89E91;
-  font-size: 13px;
-}
-
-.interest-categories {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 14px;
-}
-
-.interest-category {
-  padding: 12px 14px;
-  background: #FFFBF5;
-  border-radius: 12px;
-  border: 1px solid #F0E5D6;
-}
-
-.interest-category-header {
+/* 标题区 */
+.ip-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  margin-bottom: 20px;
+  padding: 18px 22px;
+  background: linear-gradient(135deg, #FFF6ED 0%, #FFF0F5 50%, #F0EDFF 100%);
+  border-radius: 18px;
+  border: 1px solid rgba(255, 140, 66, 0.15);
 }
-.interest-category-label {
-  font-size: 13px;
-  font-weight: 600;
+.ip-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ip-header-icon {
+  font-size: 32px;
+  animation: ip-icon-float 3s ease-in-out infinite;
+}
+@keyframes ip-icon-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(5deg); }
+}
+.ip-title {
+  font-size: 18px;
+  font-weight: 800;
   color: #2D2A26;
+  margin: 0 0 2px 0;
+  background: linear-gradient(135deg, #FF8C42, #6C63FF);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
-.interest-count {
-  margin-left: 4px;
+.ip-subtitle {
+  font-size: 12px;
   color: #A89E91;
-  font-weight: 400;
+  margin: 0;
+  font-weight: 500;
+}
+.ip-total-badge {
+  padding: 6px 16px;
+  background: linear-gradient(135deg, #FF8C42, #FF6B8A);
+  color: #fff;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 4px 12px rgba(255, 140, 66, 0.3);
 }
 
-.interest-add-btn {
-  padding: 4px 12px;
-  background: transparent;
-  color: #FF8C42;
-  border: 1px solid #FFC8A1;
+/* 加载态 */
+.ip-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 40px 0;
+  color: #A89E91;
+  font-size: 14px;
+}
+.ip-loading-emoji {
+  font-size: 28px;
+  animation: ip-icon-float 2s ease-in-out infinite;
+}
+
+/* 卡片网格 */
+.ip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+@media (max-width: 640px) {
+  .ip-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 单个分组卡片 */
+.ip-group-card {
+  background: var(--group-bg, #FFFBF5);
+  border-radius: 18px;
+  padding: 16px 18px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.25s, transform 0.25s;
+  overflow: hidden;
+}
+.ip-group-card:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
+
+/* 分组头 */
+.ip-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ip-group-icon-wrap {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
   border-radius: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+.ip-group-icon {
+  font-size: 20px;
+}
+.ip-group-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #2D2A26;
+  flex: 1;
+}
+.ip-group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  background: var(--group-color, #FF8C42);
+  color: #fff;
+  border-radius: 11px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.ip-add-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 2px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  color: #A89E91;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+.ip-add-btn:hover, .ip-add-btn.active {
+  background: var(--group-color, #FF8C42);
+  border-color: var(--group-color, #FF8C42);
+  color: #fff;
+  transform: rotate(90deg);
+}
+.ip-add-btn.active {
+  transform: rotate(0deg);
+}
+
+/* 添加面板 */
+.ip-add-panel {
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+.ip-sub-selector {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ip-sub-chip {
+  padding: 5px 12px;
+  background: #fff;
+  border: 1.5px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
   font-size: 12px;
   font-weight: 600;
+  color: #6B6359;
   cursor: pointer;
   transition: all 0.18s;
 }
-.interest-add-btn:hover {
-  background: #FF8C42;
+.ip-sub-chip:hover {
+  border-color: var(--group-color, #FF8C42);
+  color: var(--group-color, #FF8C42);
+}
+.ip-sub-chip.selected {
+  background: var(--group-color, #FF8C42);
+  border-color: var(--group-color, #FF8C42);
   color: #fff;
 }
 
-.interest-add-row {
+.ip-add-row {
   display: flex;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
 }
-.interest-add-input {
+.ip-add-input {
   flex: 1;
-  padding: 6px 12px;
-  border: 1px solid #FFC8A1;
-  border-radius: 10px;
+  padding: 8px 14px;
+  border: 1.5px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
   font-size: 13px;
   outline: none;
+  background: #fff;
+  transition: border-color 0.2s;
 }
-.interest-add-input:focus {
-  border-color: #FF8C42;
+.ip-add-input:focus {
+  border-color: var(--group-color, #FF8C42);
+  box-shadow: 0 0 0 3px rgba(255, 140, 66, 0.1);
 }
-.interest-confirm-btn {
-  padding: 6px 14px;
-  background: linear-gradient(135deg, #FF8C42, #00B5C8);
+.ip-add-confirm {
+  padding: 8px 18px;
+  background: var(--group-color, #FF8C42);
   color: #fff;
   border: none;
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 12px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
 }
-.interest-confirm-btn:disabled {
-  opacity: 0.5;
+.ip-add-confirm:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.ip-add-confirm:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-.interest-chips {
+/* 兴趣 Chip 列表 */
+.ip-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-height: 28px;
 }
 
-.interest-chip {
+.ip-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
+  gap: 5px;
+  padding: 6px 14px;
   background: #fff;
-  border: 1px solid #F5D9B8;
-  border-radius: 16px;
+  border: 1.5px solid rgba(0, 0, 0, 0.06);
+  border-radius: 20px;
   font-size: 13px;
   color: #2D2A26;
-  font-weight: 500;
+  font-weight: 600;
+  cursor: default;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s;
 }
-.interest-chip.source-extracted {
-  background: linear-gradient(135deg, #FFF6E5, #ffeec2);
-  border-color: #F8C46A;
+.ip-chip:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
 }
-.interest-chip-source-tag {
+.ip-chip.ai {
+  background: linear-gradient(135deg, #FFF8E8, #FFF0D0);
+  border-color: #F8D47A;
+}
+
+.ip-chip-sub {
+  font-size: 14px;
+  line-height: 1;
+}
+.ip-chip-name {
+  max-width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ip-chip-ai {
   display: inline-block;
-  padding: 1px 6px;
-  background: linear-gradient(135deg, #F5A623, #F5A623);
+  padding: 1px 7px;
+  background: linear-gradient(135deg, #F5A623, #FF8C42);
   color: #fff;
   border-radius: 8px;
   font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.3px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
 }
-.interest-chip-del {
+.ip-chip-del {
   background: transparent;
   border: none;
-  color: #A89E91;
+  color: #C0B8AD;
   cursor: pointer;
-  font-size: 14px;
-  padding: 0 2px;
+  font-size: 15px;
+  padding: 0 1px;
   line-height: 1;
+  transition: color 0.15s;
 }
-.interest-chip-del:hover {
-  color: #C7475C;
+.ip-chip-del:hover {
+  color: #E55A6F;
 }
-.interest-empty {
+
+.ip-empty-hint {
   font-size: 12px;
-  color: #A89E91;
+  color: #C0B8AD;
   font-style: italic;
+  padding: 4px 0;
 }
 
 /* =========================================================
