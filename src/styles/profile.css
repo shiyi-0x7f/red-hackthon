@@ -1,0 +1,172 @@
+/* ========================================
+   Profile 个人画像页
+   ======================================== */
+
+.profile-page {
+  overflow-y: auto;
+  height: 100%;
+  padding-bottom: var(--space-xl);
+}
+
+.profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.profile-stat-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-xl);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-card);
+  text-align: center;
+  transition: transform var(--transition-fast);
+}
+
+.profile-stat-card:hover {
+  transform: translateY(-2px);
+}
+
+.stat-number {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  margin-bottom: var(--space-xs);
+}
+
+.stat-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.stat-primary .stat-number { color: var(--color-primary); }
+.stat-success .stat-number { color: var(--color-success); }
+.stat-warning .stat-number { color: var(--color-warning); }
+.stat-accent .stat-number { color: var(--color-accent); }
+
+.profile-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.profile-radar-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.radar-container {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-md);
+}
+
+.profile-weak-card .weak-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.weak-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.weak-rank {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.weak-name {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  min-width: 80px;
+}
+
+.weak-bar-wrapper {
+  flex: 1;
+  height: 8px;
+  background: var(--color-border-light);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.weak-bar {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.8s ease;
+}
+
+.weak-score {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  min-width: 36px;
+  text-align: right;
+}
+
+.profile-forget-card .forget-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.forget-tag {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 8px 16px;
+  background: var(--color-accent-bg);
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 122, 138, 0.2);
+}
+
+.forget-tag-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.forget-tag-risk {
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* --- Profile 响应式 --- */
+@media (max-width: 768px) {
+  .profile-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .profile-stat-card {
+    padding: var(--space-md);
+  }
+
+  .stat-number {
+    font-size: var(--font-size-xl);
+  }
+
+  .profile-charts-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .profile-stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

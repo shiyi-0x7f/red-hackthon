@@ -1,0 +1,220 @@
+/* ========================================
+   Review 复习页
+   ======================================== */
+
+.review-page {
+  overflow-y: auto;
+  height: 100%;
+  padding-bottom: var(--space-xl);
+}
+
+.review-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-lg);
+}
+
+.review-summary {
+  display: flex;
+  gap: var(--space-lg);
+}
+
+.review-summary-item {
+  text-align: center;
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--color-primary-bg);
+  border-radius: var(--radius-lg);
+}
+
+.review-summary-item.done {
+  background: var(--color-success-bg);
+}
+
+.review-summary-num {
+  display: block;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.review-summary-item.done .review-summary-num {
+  color: var(--color-success);
+}
+
+.review-summary-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.review-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
+}
+
+.review-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  transition: all var(--transition-normal);
+}
+
+.review-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.review-card-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex: 1;
+}
+
+.review-urgency {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.review-card-name {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: 2px;
+}
+
+.review-card-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.meta-dot {
+  opacity: 0.5;
+}
+
+.review-card-progress {
+  width: 100px;
+}
+
+.mini-progress-bar {
+  height: 6px;
+  background: var(--color-border-light);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.mini-progress-fill {
+  height: 100%;
+  background: var(--color-primary-gradient);
+  border-radius: var(--radius-full);
+  transition: width 0.5s ease;
+}
+
+.review-card-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.review-empty {
+  text-align: center;
+  padding: var(--space-2xl);
+  color: var(--color-text-muted);
+}
+
+.review-empty-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: var(--space-md);
+}
+
+.review-done-section {
+  margin-top: var(--space-lg);
+}
+
+.review-done-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.review-done-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-success-bg);
+  border-radius: var(--radius-md);
+  opacity: 0.8;
+}
+
+.done-check {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.done-name {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  text-decoration: line-through;
+  color: var(--color-text-secondary);
+}
+
+.done-mastery {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* --- Review 响应式 --- */
+@media (max-width: 768px) {
+  .review-header {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .review-summary {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .review-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+  }
+
+  .review-card-left {
+    width: 100%;
+  }
+
+  .review-card-progress {
+    width: 100%;
+  }
+
+  .review-card-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+@media (max-width: 480px) {
+  .review-summary-item {
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .review-summary-num {
+    font-size: var(--font-size-lg);
+  }
+}

@@ -429,7 +429,7 @@ const HomePage: React.FC = () => {
           {/* 角色容器 — 预留 Live2D */}
           <div className="companion-avatar-wrapper" id="live2d-container">
             <motion.img
-              src="/images/learning_companion.svg"
+              src="/images/model.svg"
               alt="学搭搭"
               className="companion-avatar-img"
               animate={{ y: [0, -8, 0] }}
