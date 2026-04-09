@@ -130,7 +130,7 @@ async def get_profile_overview(
     correct_count = int(agg["correct"] or 0)
     accuracy = (correct_count / total_questions) if total_questions else 0.0
 
-    # 2) 学习天数 + 总时长
+    # 2) 学习天数 + 总时长 — 优先从 daily_stats，若无记录则从 answer_records / sessions 推算
     async with db.execute(
         """
         SELECT COUNT(DISTINCT stat_date) AS learning_days,
@@ -143,7 +143,37 @@ async def get_profile_overview(
     learning_days = int(ds["learning_days"] or 0)
     total_duration_minutes = int((ds["total_secs"] or 0) / 60)
 
-    # 3) 近 7 天每日明细
+    # 若 daily_stats 为空，从 answer_records 推算学习天数
+    if learning_days == 0 and total_questions > 0:
+        async with db.execute(
+            "SELECT COUNT(DISTINCT DATE(created_at)) AS days FROM answer_records WHERE student_id = ?",
+            (student_id,),
+        ) as cur:
+            row = await cur.fetchone()
+            learning_days = int(row["days"] or 0)
+
+    # 若 total_duration 为空，从 learning_sessions 推算总时长
+    if total_duration_minutes == 0:
+        async with db.execute(
+            """
+            SELECT COALESCE(SUM(total_duration_secs), 0) AS total_secs
+            FROM learning_sessions WHERE student_id = ?
+            """,
+            (student_id,),
+        ) as cur:
+            sess_dur = await cur.fetchone()
+            total_duration_minutes = int((sess_dur["total_secs"] or 0) / 60)
+
+    # 若仍为 0，从 answer_records 的 time_spent_secs 推算
+    if total_duration_minutes == 0 and total_questions > 0:
+        async with db.execute(
+            "SELECT COALESCE(SUM(time_spent_secs), 0) AS total_secs FROM answer_records WHERE student_id = ?",
+            (student_id,),
+        ) as cur:
+            ar_dur = await cur.fetchone()
+            total_duration_minutes = int((ar_dur["total_secs"] or 0) / 60)
+
+    # 3) 近 7 天每日明细 — 优先 daily_stats，若无则从 answer_records 推算
     async with db.execute(
         """
         SELECT stat_date            AS date,
@@ -158,6 +188,24 @@ async def get_profile_overview(
         (student_id,),
     ) as cur:
         daily_rows = await cur.fetchall()
+
+    # 若 daily_stats 无数据，从 answer_records 聚合每日答题情况
+    if len(daily_rows) == 0 and total_questions > 0:
+        async with db.execute(
+            """
+            SELECT DATE(created_at) AS date,
+                   CAST(COALESCE(SUM(time_spent_secs), 0) / 60.0 AS INTEGER) AS duration_minutes,
+                   COUNT(*) AS question_count,
+                   SUM(is_correct) AS correct_count
+            FROM answer_records
+            WHERE student_id = ?
+            GROUP BY DATE(created_at)
+            ORDER BY date DESC
+            LIMIT 7
+            """,
+            (student_id,),
+        ) as cur:
+            daily_rows = await cur.fetchall()
 
     # 4) 知识掌握度
     async with db.execute(
