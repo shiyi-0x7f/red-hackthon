@@ -44,6 +44,8 @@ interface MasteryItem {
 interface DailyStat {
   date: string;
   duration_minutes: number;
+  question_count?: number;
+  correct_count?: number;
 }
 
 /** Profile 页内部用的数据结构 */
@@ -76,8 +78,10 @@ function fromBackendOverview(o: ProfileOverview): ProfileData {
     learningDays: o.learning_days,
     totalDurationMinutes: o.total_duration_minutes,
     dailyStats: o.daily_stats.map((d) => ({
-      date: d.date.length >= 10 ? d.date.slice(5, 10) : d.date,
+      date: d.date,
       duration_minutes: d.duration_minutes,
+      question_count: d.question_count,
+      correct_count: d.correct_count,
     })),
     masteryData: o.mastery_data.map((m) => ({
       knowledge_id: m.knowledge_id,
@@ -384,42 +388,110 @@ const ProfilePage: React.FC = () => {
     };
   }, [profileData]);
 
-  const { totalAnswers, accuracy, learningDays, totalDurationMinutes, dailyStats, masteryData } = profileData;
+  const { totalAnswers, correctCount, accuracy, learningDays, totalDurationMinutes, dailyStats, masteryData } = profileData;
   const weakPoints = [...masteryData].sort((a, b) => a.mastery_score - b.mastery_score).slice(0, 5);
   const forgettingAlerts = masteryData.filter(m => m.forgetting_risk > 0.5);
 
-  // 学习时间趋势柱状图（最近 7 天每日分钟数）
-  const dailyDurationOption = useMemo(() => ({
-    tooltip: { trigger: 'axis' as const, formatter: '{b}<br/>学习 {c} 分钟' },
-    grid: { left: 50, right: 20, top: 30, bottom: 40 },
-    xAxis: {
-      type: 'category' as const,
-      data: dailyStats.map((d) => d.date),
-      axisLabel: { fontSize: 11, color: '#6B6359' },
-      axisLine: { lineStyle: { color: '#F0E5D6' } },
-    },
-    yAxis: {
-      type: 'value' as const,
-      axisLabel: { formatter: '{value}\u00a0分', color: '#6B6359' },
-      splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.08)' } },
-    },
-    series: [{
-      type: 'bar' as const,
-      data: dailyStats.map((d) => d.duration_minutes),
-      itemStyle: {
-        color: {
-          type: 'linear' as const,
-          x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: '#FF8C42' },
-            { offset: 1, color: '#FFA86A' },
-          ],
+  // 学习趋势柱状图 — 双轴：题量 + 正确率
+  const dailyDurationOption = useMemo(() => {
+    // 反转 daily_stats（后端是 DESC 排序的）
+    const sorted = [...dailyStats].reverse();
+    const hasAnyDuration = sorted.some((d) => d.duration_minutes > 0);
+
+    return {
+      tooltip: {
+        trigger: 'axis' as const,
+        formatter: (params: Array<{ seriesName: string; value: number; axisValueLabel: string }>) => {
+          const date = params[0]?.axisValueLabel || '';
+          let html = `<b>${date}</b><br/>`;
+          params.forEach((p) => {
+            if (p.seriesName === '答题数') html += `📝 答题数：${p.value} 道<br/>`;
+            else if (p.seriesName === '正确数') html += `✅ 正确数：${p.value} 道<br/>`;
+            else if (p.seriesName === '学习时长') html += `⏱ 时长：${p.value} 分钟<br/>`;
+          });
+          return html;
         },
-        borderRadius: [8, 8, 0, 0],
       },
-      barWidth: '50%',
-    }],
-  }), [dailyStats]);
+      legend: {
+        data: hasAnyDuration ? ['答题数', '正确数', '学习时长'] : ['答题数', '正确数'],
+        top: 0,
+        textStyle: { color: '#6B6359', fontSize: 11 },
+      },
+      grid: { left: 50, right: hasAnyDuration ? 60 : 20, top: 36, bottom: 40 },
+      xAxis: {
+        type: 'category' as const,
+        data: sorted.map((d) => {
+          // 格式化日期显示
+          const dateStr = d.date.length >= 10 ? d.date.slice(5, 10) : d.date;
+          return dateStr;
+        }),
+        axisLabel: { fontSize: 11, color: '#6B6359' },
+        axisLine: { lineStyle: { color: '#F0E5D6' } },
+      },
+      yAxis: [
+        {
+          type: 'value' as const,
+          name: '题量',
+          minInterval: 1,
+          axisLabel: { color: '#6B6359' },
+          splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.08)' } },
+        },
+        ...(hasAnyDuration ? [{
+          type: 'value' as const,
+          name: '分钟',
+          axisLabel: { formatter: '{value}', color: '#6B6359' },
+          splitLine: { show: false },
+        }] : []),
+      ],
+      series: [
+        {
+          name: '答题数',
+          type: 'bar' as const,
+          data: sorted.map((d: DailyStat) => (d as any).question_count ?? d.duration_minutes),
+          itemStyle: {
+            color: {
+              type: 'linear' as const,
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: '#FF8C42' },
+                { offset: 1, color: '#FFA86A' },
+              ],
+            },
+            borderRadius: [6, 6, 0, 0],
+          },
+          barWidth: '35%',
+        },
+        {
+          name: '正确数',
+          type: 'bar' as const,
+          data: sorted.map((d: DailyStat) => (d as any).correct_count ?? 0),
+          itemStyle: {
+            color: {
+              type: 'linear' as const,
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: '#5BC97F' },
+                { offset: 1, color: '#7EE0A0' },
+              ],
+            },
+            borderRadius: [6, 6, 0, 0],
+          },
+          barWidth: '35%',
+        },
+        ...(hasAnyDuration ? [{
+          name: '学习时长',
+          type: 'line' as const,
+          yAxisIndex: 1,
+          data: sorted.map((d) => d.duration_minutes),
+          smooth: true,
+          symbol: 'circle',
+          symbolSize: 6,
+          lineStyle: { color: '#00B5C8', width: 2 },
+          itemStyle: { color: '#00B5C8', borderColor: '#fff', borderWidth: 2 },
+        }] : []),
+      ],
+    };
+  }, [dailyStats]);
 
   // === Tab 定义 ===
   type TabKey = 'overview' | 'knowledge' | 'wrongbook' | 'profile';
@@ -491,10 +563,52 @@ const ProfilePage: React.FC = () => {
               </div>
             </div>
 
+            {/* 额外指标行 */}
+            {totalAnswers > 0 && (
+              <div className="profile-extra-stats">
+                <div className="extra-stat-item">
+                  <span className="extra-stat-icon">✅</span>
+                  <span className="extra-stat-value">{correctCount}</span>
+                  <span className="extra-stat-label">正确题数</span>
+                </div>
+                <div className="extra-stat-item">
+                  <span className="extra-stat-icon">❌</span>
+                  <span className="extra-stat-value">{totalAnswers - correctCount}</span>
+                  <span className="extra-stat-label">错误题数</span>
+                </div>
+                <div className="extra-stat-item">
+                  <span className="extra-stat-icon">📚</span>
+                  <span className="extra-stat-value">{masteryData.length}</span>
+                  <span className="extra-stat-label">涉及知识点</span>
+                </div>
+                <div className="extra-stat-item">
+                  <span className="extra-stat-icon">⚠️</span>
+                  <span className="extra-stat-value">{forgettingAlerts.length}</span>
+                  <span className="extra-stat-label">遗忘预警</span>
+                </div>
+              </div>
+            )}
+
             <div className="card profile-time-trend-card">
-              <h2 className="card-title">📈 学习时间趋势</h2>
-              <ReactECharts option={dailyDurationOption} style={{ height: 240, width: '100%' }} />
+              <h2 className="card-title">📈 学习趋势</h2>
+              {dailyStats.length > 0 ? (
+                <ReactECharts option={dailyDurationOption} style={{ height: 260, width: '100%' }} />
+              ) : (
+                <div className="profile-empty-chart">
+                  <div className="empty-chart-icon">📊</div>
+                  <div className="empty-chart-text">暂无学习记录</div>
+                  <div className="empty-chart-hint">完成几道题后，这里会显示你的学习趋势</div>
+                </div>
+              )}
             </div>
+
+            {/* 知识掌握概览 — 在学习概况中也展示雷达图小卡片 */}
+            {masteryData.length > 0 && (
+              <div className="card profile-time-trend-card">
+                <h2 className="card-title">🎯 知识掌握速览</h2>
+                <ReactECharts option={radarOption} style={{ height: 280, width: '100%' }} />
+              </div>
+            )}
           </>
         )}
 

@@ -5,7 +5,12 @@ import zhCN from 'antd/locale/zh_CN';
 import App from './App';
 import { autoInitBrowserSettings } from './services';
 import './styles/index.css';
-import './styles/pages.css';
+import './styles/settings.css';
+import './styles/profile.css';
+import './styles/review.css';
+import './styles/rest.css';
+import './styles/parent.css';
+import './styles/chat.css';
 
 // 打开页面时自动：启用 HTTP 模式、填入默认 sk、分配独立学生 id（每浏览器一个）
 autoInitBrowserSettings();

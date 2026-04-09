@@ -429,7 +429,7 @@ const HomePage: React.FC = () => {
           {/* 角色容器 — 预留 Live2D */}
           <div className="companion-avatar-wrapper" id="live2d-container">
             <motion.img
-              src="/images/companion.png"
+              src="/images/model.svg"
               alt="学搭搭"
               className="companion-avatar-img"
               animate={{ y: [0, -8, 0] }}
@@ -554,7 +554,7 @@ const HomePage: React.FC = () => {
                     transition={{ duration: 0.3 }}
                   >
                     {msg.role === 'companion' && (
-                      <img src="/images/companion.png" alt="" className="chat-avatar" />
+                      <img src="/images/logo_128.png" alt="" className="chat-avatar" />
                     )}
                     <div className="chat-bubble-content">
                       {msg.role === 'companion' && msg.structured ? (
@@ -570,7 +570,7 @@ const HomePage: React.FC = () => {
                 {/* 等待回复 */}
                 {isTyping && (
                   <div className="chat-bubble companion">
-                    <img src="/images/companion.png" alt="" className="chat-avatar" />
+                    <img src="/images/logo_128.png" alt="" className="chat-avatar" />
                     <div className="chat-bubble-content typing">
                       <span className="typing-dot" />
                       <span className="typing-dot" />

@@ -13,6 +13,7 @@ interface AppState {
 
   // Actions
   setCurrentStudent: (id: string, name: string, grade: number) => void;
+  setStudentName: (name: string) => void;
   setParentVerified: (verified: boolean) => void;
 }
 
@@ -25,6 +26,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   setCurrentStudent: (id, name, grade) =>
     set({ currentStudentId: id, currentStudentName: name, currentGrade: grade }),
+
+  setStudentName: (name) => set({ currentStudentName: name }),
 
   setParentVerified: (verified) =>
     set({ isParentVerified: verified }),

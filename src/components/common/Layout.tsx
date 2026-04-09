@@ -14,8 +14,14 @@ import {
   CopyOutlined,
   CheckOutlined,
   LinkOutlined,
+  EditOutlined,
+  CloseOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '../../stores/useAppStore';
+
+const STUDENT_NAME_STORAGE_KEY = 'ai_learning_student_name';
+const NAME_LAST_CHANGED_KEY = 'name_last_changed';
+const NAME_CHANGE_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000; // 30 天
 
 const navItems = [
   { path: '/home', icon: <HomeOutlined />, label: '首页' },
@@ -30,11 +36,39 @@ const bottomItems = [
   { path: '/parent', icon: <SafetyCertificateOutlined />, label: '家长' },
 ];
 
+/** 获取下次可改名日期的提示文案 */
+function getNextChangeHint(): { canChange: boolean; hint: string } {
+  const lastChanged = localStorage.getItem(NAME_LAST_CHANGED_KEY);
+  if (!lastChanged) return { canChange: true, hint: '' };
+
+  const lastTs = parseInt(lastChanged, 10);
+  if (isNaN(lastTs)) return { canChange: true, hint: '' };
+
+  const nextAllowed = lastTs + NAME_CHANGE_COOLDOWN_MS;
+  const now = Date.now();
+
+  if (now >= nextAllowed) return { canChange: true, hint: '' };
+
+  const nextDate = new Date(nextAllowed);
+  const month = nextDate.getMonth() + 1;
+  const day = nextDate.getDate();
+  return {
+    canChange: false,
+    hint: `下次可改：${month}月${day}日`,
+  };
+}
+
 const Layout: React.FC = () => {
-  const { currentStudentId, currentStudentName } = useAppStore();
+  const { currentStudentId, currentStudentName, currentGrade, setStudentName } = useAppStore();
   const [showIdCard, setShowIdCard] = useState(false);
   const [copied, setCopied] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
+
+  // 改名相关状态
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [nameChangeInfo, setNameChangeInfo] = useState(() => getNextChangeHint());
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   // 根据路径判断 greeting
   const getGreeting = () => {
@@ -49,6 +83,7 @@ const Layout: React.FC = () => {
     const handleClickOutside = (e: MouseEvent) => {
       if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
         setShowIdCard(false);
+        setIsEditing(false);
       }
     };
     if (showIdCard) {
@@ -56,6 +91,14 @@ const Layout: React.FC = () => {
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showIdCard]);
+
+  // 编辑模式开启时自动聚焦
+  useEffect(() => {
+    if (isEditing) {
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }
+  }, [isEditing]);
 
   const handleCopyId = async () => {
     try {
@@ -75,13 +118,60 @@ const Layout: React.FC = () => {
     }
   };
 
+  const handleStartEdit = () => {
+    if (!nameChangeInfo.canChange) return;
+    setEditName(currentStudentName || '');
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditName('');
+  };
+
+  const handleSaveName = () => {
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === currentStudentName) {
+      handleCancelEdit();
+      return;
+    }
+    if (trimmed.length > 12) {
+      return; // 名字太长
+    }
+
+    // 更新 localStorage
+    localStorage.setItem(STUDENT_NAME_STORAGE_KEY, trimmed);
+    localStorage.setItem(NAME_LAST_CHANGED_KEY, String(Date.now()));
+
+    // 更新 zustand store
+    setStudentName(trimmed);
+
+    // 刷新限制状态
+    setNameChangeInfo(getNextChangeHint());
+    setIsEditing(false);
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSaveName();
+    } else if (e.key === 'Escape') {
+      handleCancelEdit();
+    }
+  };
+
   // 名字首字
   const initial = (currentStudentName || '同学').charAt(0);
+
+  // 年级展示
+  const gradeText = currentGrade ? `${currentGrade}年级` : '六年级';
 
   return (
     <div className="app-layout">
       {/* 侧边栏 */}
       <aside className="app-sidebar">
+        <div className="sidebar-logo">
+          <img src="/images/logo_128.png" alt="学搭搭" className="sidebar-logo-img" />
+        </div>
         <nav className="sidebar-nav">
           {navItems.map((item) => (
             <NavLink
@@ -153,8 +243,44 @@ const Layout: React.FC = () => {
                   <div className="id-card-header">
                     <div className="id-card-avatar">{initial}</div>
                     <div className="id-card-info">
-                      <div className="id-card-name">{currentStudentName || '同学'}</div>
-                      <div className="id-card-grade">六年级</div>
+                      {isEditing ? (
+                        <div className="id-card-name-edit">
+                          <input
+                            ref={editInputRef}
+                            type="text"
+                            className="id-card-name-input"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={handleNameKeyDown}
+                            maxLength={12}
+                            placeholder="输入新名字"
+                          />
+                          <div className="id-card-name-actions">
+                            <button className="id-card-name-save" onClick={handleSaveName}>
+                              <CheckOutlined /> 确认
+                            </button>
+                            <button className="id-card-name-cancel" onClick={handleCancelEdit}>
+                              <CloseOutlined />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="id-card-name-row">
+                          <div className="id-card-name">{currentStudentName || '同学'}</div>
+                          <button
+                            className={`id-card-edit-btn ${!nameChangeInfo.canChange ? 'disabled' : ''}`}
+                            onClick={handleStartEdit}
+                            disabled={!nameChangeInfo.canChange}
+                            title={nameChangeInfo.canChange ? '修改名字（每月限改一次）' : nameChangeInfo.hint}
+                          >
+                            <EditOutlined />
+                          </button>
+                        </div>
+                      )}
+                      <div className="id-card-grade">{gradeText}</div>
+                      {!nameChangeInfo.canChange && !isEditing && (
+                        <div className="id-card-name-cooldown">{nameChangeInfo.hint}</div>
+                      )}
                     </div>
                   </div>
 
