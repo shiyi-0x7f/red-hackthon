@@ -1,0 +1,76 @@
+# AI 学习系统 + AstrBot IM 网关
+#
+# 用法：
+#   1. 复制 server/.env.example 为 server/.env，填入 SILICONFLOW_API_KEY
+#   2. docker-compose up -d
+#   3. 访问 http://localhost:6185 配置 AstrBot (飞书平台 + 插件)
+#
+# Docker 国内镜像加速 (在部署服务器上执行):
+#   sudo tee /etc/docker/daemon.json <<EOF
+#   {
+#       "registry-mirrors": [
+#           "https://docker.xuanyuan.me"
+#       ]
+#   }
+#   EOF
+#   sudo systemctl daemon-reload
+#   sudo systemctl restart docker
+
+services:
+  # ── 学习服务器 (FastAPI) ──
+  learning-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: ai-learning-server
+    restart: unless-stopped
+    ports:
+      - "9100:9000"
+    env_file:
+      - ./server/.env
+    environment:
+      DATABASE_URL: sqlite:////data/ai_learning.db
+      MIGRATIONS_DIR: /migrations
+      DATA_DIR: /data_files
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: 9000
+    volumes:
+      - learning_data:/data
+      - ./src-tauri/migrations:/migrations:ro
+      - ./data:/data_files:ro
+      - ./dist:/app/static:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ai-learning-network
+
+  # ── AstrBot (IM 网关 - 飞书/QQ/微信) ──
+  astrbot:
+    image: soulter/astrbot:latest
+    container_name: astrbot
+    restart: always
+    ports:
+      - "6185:6185"   # AstrBot WebUI
+    environment:
+      - TZ=Asia/Shanghai
+      - LEARNING_SERVER_URL=http://learning-server:9000
+      - LEARNING_API_KEY=sk-ai-learning-change-me
+    volumes:
+      - ./AstrBot/data:/AstrBot/data
+      - /etc/localtime:/etc/localtime:ro
+    depends_on:
+      learning-server:
+        condition: service_healthy
+    networks:
+      - ai-learning-network
+
+volumes:
+  learning_data:
+
+networks:
+  ai-learning-network:
+    name: ai-learning-network
+    driver: bridge

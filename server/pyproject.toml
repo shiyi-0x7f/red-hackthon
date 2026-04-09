@@ -1,0 +1,19 @@
+[project]
+name = "ai-learning-server"
+version = "0.1.0"
+description = "AI 自适应小学数学学习系统 - FastAPI 后端"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]

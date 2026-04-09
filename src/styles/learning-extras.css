@@ -1554,17 +1554,18 @@
 }
 
 /* =========================================================
-   Profile 页 Tab 切换
+   Profile 页 Tab 切换 — 底线风格（统一，选中态用橙色底线 + 加粗文字）
    ========================================================= */
 .profile-tabs {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   margin: 18px 0 22px;
-  padding: 6px;
-  background: #FFFBF5;
-  border-radius: 16px;
-  border: 1px solid #F0E5D6;
-  box-shadow: 0 2px 8px rgba(255, 140, 66, 0.05);
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid #F0E5D6;
+  border-radius: 0;
+  box-shadow: none;
   overflow-x: auto;
 }
 .profile-tab {
@@ -1575,28 +1576,36 @@
   justify-content: center;
   gap: 8px;
   padding: 12px 18px;
+  margin-bottom: -2px;   /* 让选中的底线盖住容器底线 */
   background: transparent;
-  color: #6B6359;
+  color: #8C8273;
   border: none;
-  border-radius: 12px;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: color 0.2s ease, border-color 0.2s ease;
   white-space: nowrap;
 }
 .profile-tab:hover:not(.active) {
-  background: rgba(255, 140, 66, 0.08);
   color: #2D2A26;
+  border-bottom-color: rgba(255, 140, 66, 0.25);
 }
 .profile-tab.active {
-  background: linear-gradient(135deg, #FF8C42 0%, #00B5C8 100%);
-  color: #fff;
-  box-shadow: 0 4px 14px rgba(255, 140, 66, 0.3);
+  background: transparent;
+  color: #FF8C42;
+  border-bottom-color: #FF8C42;
+  box-shadow: none;
+  font-weight: 700;
 }
 .profile-tab-emoji {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
+  opacity: 0.85;
+}
+.profile-tab.active .profile-tab-emoji {
+  opacity: 1;
 }
 
 .profile-tab-content {
@@ -1604,23 +1613,132 @@
 }
 
 /* =========================================================
-   知识地图 2x2 自适应网格
+   知识地图 — 固定 2 列网格（桌面），小屏单列
    ========================================================= */
 .knowledge-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 820px) {
+  .knowledge-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .knowledge-cell {
-  padding: 12px 14px !important;
+  padding: 14px 16px !important;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.knowledge-cell-chart {
+  /* 图表卡片内 ECharts 需要一个确定高度；让内容自适应撑开 */
 }
 
 .knowledge-cell .card-title-sm {
   font-size: 13px !important;
-  margin: 0 0 8px 0 !important;
+  margin: 0 0 10px 0 !important;
   font-weight: 600;
+}
+
+/* 薄弱点列表的颜色编码百分比（配合颜色条） */
+.weak-score-red {
+  color: #E55A6F !important;
+  font-weight: 700;
+}
+.weak-score-yellow {
+  color: #D98A1C !important;
+  font-weight: 700;
+}
+.weak-score-green {
+  color: #3EA363 !important;
+  font-weight: 700;
+}
+.weak-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 9em;
+}
+
+/* =========================================================
+   学习建议卡片（知识地图 tab 底部）
+   ========================================================= */
+.suggestion-card {
+  margin-top: 16px;
+  padding: 16px 20px !important;
+}
+.suggestion-card .card-title-sm {
+  font-size: 14px !important;
+  margin: 0 0 14px 0 !important;
+  font-weight: 700;
+}
+.suggestion-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.suggestion-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.suggestion-tag {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.suggestion-tag-review {
+  background: rgba(229, 90, 111, 0.12);
+  color: #C7475C;
+  border: 1px solid rgba(229, 90, 111, 0.3);
+}
+.suggestion-tag-refresh {
+  background: rgba(245, 166, 35, 0.14);
+  color: #B07309;
+  border: 1px solid rgba(245, 166, 35, 0.3);
+}
+.suggestion-tag-challenge {
+  background: rgba(0, 181, 200, 0.12);
+  color: #007B8A;
+  border: 1px solid rgba(0, 181, 200, 0.3);
+}
+.suggestion-row-body {
+  flex: 1;
+  min-width: 0;
+}
+.suggestion-row-title {
+  font-size: 13px;
+  color: #6B6359;
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+.suggestion-row-items {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.suggestion-item {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  background: #FFF6EC;
+  border: 1px solid #F0E5D6;
+  border-radius: 10px;
+  font-size: 12px;
+  color: #2D2A26;
+  font-weight: 500;
 }
 
 .weak-list-compact {
@@ -1697,11 +1815,12 @@
 
 @media (max-width: 640px) {
   .profile-tab {
-    min-width: 90px;
-    padding: 10px 12px;
+    min-width: 78px;
+    padding: 10px 10px;
     font-size: 13px;
+    gap: 6px;
   }
-  .profile-tab-emoji { font-size: 16px; }
+  .profile-tab-emoji { font-size: 14px; }
 }
 
 /* Profile 页数据来源标签 */

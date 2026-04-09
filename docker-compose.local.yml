@@ -1,0 +1,22 @@
+# 本地测试用 - 只启动 AstrBot（server 已在宿主机 localhost:9000 运行）
+#
+# 用法: docker compose -f docker-compose.local.yml up -d
+# 访问: http://localhost:6185
+
+services:
+  astrbot:
+    image: soulter/astrbot:latest
+    container_name: astrbot-local
+    restart: unless-stopped
+    ports:
+      - "6185:6185"
+    environment:
+      - TZ=Asia/Shanghai
+      # 插件连接宿主机上的 learning-server
+      - LEARNING_SERVER_URL=http://host.docker.internal:9000
+      - LEARNING_API_KEY=sk-ai-learning-change-me
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./AstrBot/data:/AstrBot/data
+      - /etc/localtime:/etc/localtime:ro

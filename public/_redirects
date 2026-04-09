@@ -1,0 +1,19 @@
+# SPA fallback — 让所有未匹配的路径回退到 index.html
+# 这个文件会被 Cloudflare Pages / Netlify 直接读取。
+#
+# 为什么需要：
+# 前端用 BrowserRouter（history API），路径如 /learn、/profile、/practice 都
+# 是客户端虚拟路由，服务器上并不存在对应文件。如果直接刷新 /learn 的页面，
+# 服务器找不到文件会返回 404。这条规则把所有 404 请求重写到 /index.html，
+# 让 React Router 接管之后的路由解析。
+#
+# 注意：API 请求不应被重写。如果前端和后端同源部署，需要确保 /api/* 路径
+# 在 SPA fallback 之前被优先处理（nginx 用 try_files 顺序、FastAPI 先注册
+# /api/v1/* 路由再 mount StaticFiles 都可以）。
+#
+# 对其他平台的兼容性：
+# - Vercel: 自带 SPA fallback，本文件无影响
+# - nginx:  不读本文件，需要单独写 `try_files $uri /index.html;`
+# - FastAPI StaticFiles: 不读本文件，需要单独写 fallback 路由
+
+/*    /index.html   200

@@ -2,11 +2,36 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import ReactECharts from 'echarts-for-react';
 import { studentModelService, type ProfileOverview } from '../../services';
+import { useAppStore } from '../../stores/useAppStore';
 import WrongAnswerBook from '../../components/learning/WrongAnswerBook';
 import InterestProfile from '../../components/learning/InterestProfile';
 import '../../styles/learning-extras.css';
 
-const STUDENT_ID = 'default-student';
+/**
+ * 从层级化的知识点名称中提取最末层（叶子节点）
+ *
+ * 后端 knowledge_nodes.name 有时是全路径格式（"分数乘法-分数乘法应用题-分数乘法应用题"），
+ * 直接渲染会导致雷达图 / X 轴标签太长而截断或重叠。这里做两件事：
+ * 1. 按常见分隔符 `- → > › /` 切分取最后一段
+ * 2. 如果最后一段与倒数第二段重复（人工标注常见错误），则再往上取一级
+ *
+ * 如果完整名称本身就很短，直接返回原名。
+ */
+function leafName(full: string | undefined, maxLen = 8): string {
+  if (!full) return '';
+  const parts = full
+    .split(/[-→>›/]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return full;
+  let last = parts[parts.length - 1];
+  // "A-A-A" 的情况再回退一层（没意义，取再上一级）
+  if (parts.length >= 2 && parts[parts.length - 2] === last) {
+    last = parts[parts.length - 2];
+  }
+  // 截断过长尾部（保留原来信息由 tooltip / title 显示）
+  return last.length > maxLen ? last.slice(0, maxLen) + '…' : last;
+}
 
 interface MasteryItem {
   knowledge_id: string;
@@ -21,45 +46,29 @@ interface DailyStat {
   duration_minutes: number;
 }
 
-// Mock 数据（浏览器模式）
-const getMockProfileData = () => {
-  const records = JSON.parse(localStorage.getItem('mock_answer_records') || '[]');
-  const total = records.length;
-  const correct = records.filter((r: { isCorrect: boolean }) => r.isCorrect).length;
+/** Profile 页内部用的数据结构 */
+interface ProfileData {
+  totalAnswers: number;
+  correctCount: number;
+  accuracy: number;
+  learningDays: number;
+  totalDurationMinutes: number;
+  dailyStats: DailyStat[];
+  masteryData: MasteryItem[];
+}
 
-  // 最近 7 天每日学习时长 mock
-  const dailyStats: DailyStat[] = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - 6 + i);
-    return {
-      date: d.toISOString().slice(5, 10), // MM-DD
-      duration_minutes: Math.floor(Math.random() * 35) + 5,
-    };
-  });
-  const totalDurationMinutes = dailyStats.reduce((s, d) => s + d.duration_minutes, 0);
-
-  return {
-    totalAnswers: total,
-    correctCount: correct,
-    accuracy: total > 0 ? correct / total : 0,
-    learningDays: Math.min(Math.floor(total / 5) + 1, 30),
-    totalDurationMinutes,
-    dailyStats,
-    masteryData: [
-      { knowledge_id: 'k1', name: '分数乘法', mastery_score: 0.85, attempt_count: 12, forgetting_risk: 0.15 },
-      { knowledge_id: 'k2', name: '位置与方向', mastery_score: 0.72, attempt_count: 8, forgetting_risk: 0.28 },
-      { knowledge_id: 'k3', name: '分数除法', mastery_score: 0.65, attempt_count: 15, forgetting_risk: 0.35 },
-      { knowledge_id: 'k4', name: '比', mastery_score: 0.58, attempt_count: 6, forgetting_risk: 0.42 },
-      { knowledge_id: 'k5', name: '圆', mastery_score: 0.45, attempt_count: 4, forgetting_risk: 0.55 },
-      { knowledge_id: 'k6', name: '百分数', mastery_score: 0.38, attempt_count: 3, forgetting_risk: 0.62 },
-      { knowledge_id: 'k7', name: '扇形统计图', mastery_score: 0.30, attempt_count: 2, forgetting_risk: 0.7 },
-      { knowledge_id: 'k8', name: '数与形', mastery_score: 0.20, attempt_count: 1, forgetting_risk: 0.8 },
-    ] as MasteryItem[],
-  };
+const EMPTY_PROFILE_DATA: ProfileData = {
+  totalAnswers: 0,
+  correctCount: 0,
+  accuracy: 0,
+  learningDays: 0,
+  totalDurationMinutes: 0,
+  dailyStats: [],
+  masteryData: [],
 };
 
 /** 把后端 ProfileOverview 转成 Profile 页内部用的数据格式 */
-function fromBackendOverview(o: ProfileOverview): ReturnType<typeof getMockProfileData> {
+function fromBackendOverview(o: ProfileOverview): ProfileData {
   return {
     totalAnswers: o.total_questions,
     correctCount: o.correct_count,
@@ -79,6 +88,87 @@ function fromBackendOverview(o: ProfileOverview): ReturnType<typeof getMockProfi
     })),
   };
 }
+
+/**
+ * 学习建议卡片 — 基于 masteryData 自动计算 3 条建议
+ *
+ * - 复习：掌握度最低的 2 个知识点
+ * - 巩固：遗忘风险最高的 2 个（排除已在复习里的）
+ * - 挑战：掌握度最高且练习 ≥ 3 次的 1 个（鼓励进阶）
+ */
+const LearningSuggestionCard: React.FC<{ masteryData: MasteryItem[] }> = ({ masteryData }) => {
+  if (!masteryData || masteryData.length === 0) return null;
+
+  const sortedByMastery = [...masteryData].sort((a, b) => a.mastery_score - b.mastery_score);
+  const sortedByRisk = [...masteryData].sort((a, b) => b.forgetting_risk - a.forgetting_risk);
+
+  const toReview = sortedByMastery.slice(0, 2);
+  const reviewIds = new Set(toReview.map((x) => x.knowledge_id));
+  const toRefresh = sortedByRisk
+    .filter((x) => x.forgetting_risk > 0.4 && !reviewIds.has(x.knowledge_id))
+    .slice(0, 2);
+
+  const challengeCandidate = [...masteryData]
+    .filter((x) => x.mastery_score >= 0.75 && x.attempt_count >= 3)
+    .sort((a, b) => b.mastery_score - a.mastery_score)[0];
+
+  const rows: Array<{
+    tag: string;
+    tagClass: string;
+    title: string;
+    items: MasteryItem[];
+  }> = [];
+
+  if (toReview.length > 0) {
+    rows.push({
+      tag: '优先复习',
+      tagClass: 'suggestion-tag-review',
+      title: '这些知识点掌握度偏低，先练几道基础题巩固一下',
+      items: toReview,
+    });
+  }
+  if (toRefresh.length > 0) {
+    rows.push({
+      tag: '及时温习',
+      tagClass: 'suggestion-tag-refresh',
+      title: '一段时间没碰了，回顾一下避免遗忘',
+      items: toRefresh,
+    });
+  }
+  if (challengeCandidate) {
+    rows.push({
+      tag: '可以挑战',
+      tagClass: 'suggestion-tag-challenge',
+      title: '掌握得不错，可以试试更难的题',
+      items: [challengeCandidate],
+    });
+  }
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div className="card suggestion-card">
+      <h2 className="card-title card-title-sm">💡 学习建议</h2>
+      <div className="suggestion-rows">
+        {rows.map((r) => (
+          <div key={r.tag} className="suggestion-row">
+            <span className={`suggestion-tag ${r.tagClass}`}>{r.tag}</span>
+            <div className="suggestion-row-body">
+              <div className="suggestion-row-title">{r.title}</div>
+              <div className="suggestion-row-items">
+                {r.items.map((it) => (
+                  <span key={it.knowledge_id} className="suggestion-item" title={it.name}>
+                    {leafName(it.name, 10)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const ProfilePage: React.FC = () => {
   const [profileData, setProfileData] = useState(getMockProfileData());
@@ -129,17 +219,24 @@ const ProfilePage: React.FC = () => {
   const radarOption = useMemo(() => {
     const data = profileData.masteryData.slice(0, 6);
     return {
-      tooltip: { trigger: 'item' as const, formatter: (p: { value: number[] }) => p.value.map((v, i) => `${data[i].name}: ${v}%`).join('<br/>') },
+      tooltip: {
+        trigger: 'item' as const,
+        formatter: (p: { value: number[] }) =>
+          p.value.map((v, i) => `${data[i].name}：${v}%`).join('<br/>'),
+      },
       radar: {
-        // 不设置 max，让 radar 内部 scale 处理；min 通过统一的全 100 axis 锚定
-        indicator: data.map((d) => ({ name: d.name })),
-        radius: '68%',
+        // 用叶子名称避免标签溢出/重叠，max 固定 100 方便对比
+        indicator: data.map((d) => ({ name: leafName(d.name, 6), max: 100 })),
+        radius: '62%',
         splitNumber: 4,
-        scale: true,
         axisName: {
           color: '#6B6B8D',
           fontSize: 11,
+          // 悬浮时自动展示完整路径（echarts 不原生支持 indicator hover tooltip，
+          // 但我们已经通过 series tooltip 覆盖了所有点位的完整信息）
+          formatter: (value: string) => value,
         },
+        nameGap: 8,
         splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.15)' } },
         splitArea: { areaStyle: { color: ['rgba(255, 140, 66, 0.02)', 'rgba(255, 140, 66, 0.06)'] } },
         axisLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.2)' } },
@@ -172,16 +269,31 @@ const ProfilePage: React.FC = () => {
     };
   }, [profileData]);
 
-  // === 掌握度趋势折线（按 attempt_count 排序模拟时间序列）===
+  // === 掌握度分布折线（按练习量排序，高到低）===
+  // 注意：这不是时间序列，而是"学得最多的 → 学得最少的"知识点掌握度分布。
+  // 真正的时间序列需要 mastery_history 表，放到 V2。
   const trendOption = useMemo(() => {
     const sorted = [...profileData.masteryData].sort((a, b) => b.attempt_count - a.attempt_count);
     return {
-      tooltip: { trigger: 'axis' as const, formatter: '{b}<br/>掌握度: {c}%' },
-      grid: { left: 50, right: 20, top: 30, bottom: 40 },
+      tooltip: {
+        trigger: 'axis' as const,
+        formatter: (params: Array<{ dataIndex: number; value: number }>) => {
+          const p = params[0];
+          const item = sorted[p.dataIndex];
+          return `${item.name}<br/>掌握度：${p.value}%<br/>练习：${item.attempt_count} 题`;
+        },
+      },
+      grid: { left: 50, right: 20, top: 20, bottom: 72 },
       xAxis: {
         type: 'category' as const,
-        data: sorted.map((d) => d.name),
-        axisLabel: { rotate: 30, fontSize: 10, color: '#6B6359' },
+        data: sorted.map((d) => leafName(d.name, 5)),
+        axisLabel: {
+          rotate: 45,
+          fontSize: 10,
+          color: '#6B6359',
+          interval: 0,
+          margin: 12,
+        },
         axisLine: { lineStyle: { color: '#F0E5D6' } },
       },
       yAxis: {
@@ -214,19 +326,57 @@ const ProfilePage: React.FC = () => {
   }, [profileData]);
 
   // === 学习量柱状图（按知识点的练习次数）===
+  // 0 值柱子用半透明灰色 + 虚线边框，一眼就能看出"没练过"
   const attemptOption = useMemo(() => {
-    const sorted = [...profileData.masteryData].sort((a, b) => b.attempt_count - a.attempt_count).slice(0, 8);
+    const sorted = [...profileData.masteryData]
+      .sort((a, b) => b.attempt_count - a.attempt_count)
+      .slice(0, 8);
+
+    const unpracticedStyle = {
+      color: 'rgba(180, 180, 180, 0.18)',
+      borderColor: 'rgba(150, 150, 150, 0.55)',
+      borderType: 'dashed' as const,
+      borderWidth: 1,
+      borderRadius: [4, 4, 0, 0],
+    };
+    const activeStyle = {
+      color: {
+        type: 'linear' as const,
+        x: 0, y: 0, x2: 0, y2: 1,
+        colorStops: [
+          { offset: 0, color: '#FF8C42' },
+          { offset: 1, color: '#00B5C8' },
+        ],
+      },
+      borderRadius: [6, 6, 0, 0],
+    };
+
     return {
-      tooltip: { trigger: 'axis' as const, formatter: '{b}<br/>{a}: {c} 道' },
-      grid: { left: 50, right: 20, top: 30, bottom: 40 },
+      tooltip: {
+        trigger: 'axis' as const,
+        formatter: (params: Array<{ dataIndex: number; value: number }>) => {
+          const p = params[0];
+          const item = sorted[p.dataIndex];
+          const badge = p.value === 0 ? '（未练习）' : `${p.value} 道`;
+          return `${item.name}<br/>练习题量：${badge}`;
+        },
+      },
+      grid: { left: 40, right: 20, top: 20, bottom: 72 },
       xAxis: {
         type: 'category' as const,
-        data: sorted.map((d) => d.name),
-        axisLabel: { rotate: 30, fontSize: 10, color: '#6B6359' },
+        data: sorted.map((d) => leafName(d.name, 5)),
+        axisLabel: {
+          rotate: 45,
+          fontSize: 10,
+          color: '#6B6359',
+          interval: 0,
+          margin: 12,
+        },
         axisLine: { lineStyle: { color: '#F0E5D6' } },
       },
       yAxis: {
         type: 'value' as const,
+        minInterval: 1,
         axisLabel: { color: '#6B6359' },
         splitLine: { lineStyle: { color: 'rgba(255, 140, 66, 0.08)' } },
       },
@@ -234,19 +384,14 @@ const ProfilePage: React.FC = () => {
         {
           name: '练习题量',
           type: 'bar' as const,
-          data: sorted.map((d) => d.attempt_count),
-          itemStyle: {
-            color: {
-              type: 'linear' as const,
-              x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [
-                { offset: 0, color: '#FF8C42' },
-                { offset: 1, color: '#00B5C8' },
-              ],
-            },
-            borderRadius: [6, 6, 0, 0],
-          },
+          // 每个数据点带自己的 itemStyle，0 值走 unpracticed 样式
+          data: sorted.map((d) => ({
+            value: d.attempt_count,
+            itemStyle: d.attempt_count === 0 ? unpracticedStyle : activeStyle,
+          })),
           barWidth: '50%',
+          // 给 0 值一个最小可见高度，避免完全看不见
+          barMinHeight: 4,
         },
       ],
     };
@@ -382,45 +527,60 @@ const ProfilePage: React.FC = () => {
             )}
 
             <div className="knowledge-grid">
-              <div className="card knowledge-cell">
+              <div className="card knowledge-cell knowledge-cell-chart">
                 <h2 className="card-title card-title-sm">📊 知识掌握雷达</h2>
-                <ReactECharts option={radarOption} style={{ height: 180, width: '100%' }} />
+                <ReactECharts option={radarOption} style={{ height: 260, width: '100%' }} />
               </div>
 
               <div className="card knowledge-cell">
                 <h2 className="card-title card-title-sm">📉 需要加强的知识点</h2>
                 <div className="weak-list weak-list-compact">
-                  {weakPoints.slice(0, 5).map((item, idx) => (
-                    <div key={item.knowledge_id} className="weak-item weak-item-compact">
-                      <span className="weak-rank">{idx + 1}</span>
-                      <span className="weak-name">{item.name}</span>
-                      <div className="weak-bar-wrapper">
-                        <div
-                          className="weak-bar"
-                          style={{
-                            width: `${item.mastery_score * 100}%`,
-                            background: item.mastery_score < 0.4 ? '#E55A6F'
-                              : item.mastery_score < 0.7 ? '#F5A623'
-                              : '#5BC97F',
-                          }}
-                        />
+                  {weakPoints.slice(0, 5).map((item, idx) => {
+                    const pct = Math.round(item.mastery_score * 100);
+                    const tier =
+                      item.mastery_score < 0.4 ? 'red'
+                      : item.mastery_score < 0.7 ? 'yellow'
+                      : 'green';
+                    return (
+                      <div
+                        key={item.knowledge_id}
+                        className="weak-item weak-item-compact"
+                        title={item.name}
+                      >
+                        <span className="weak-rank">{idx + 1}</span>
+                        <span className="weak-name">{leafName(item.name, 10)}</span>
+                        <div className="weak-bar-wrapper">
+                          <div
+                            className="weak-bar"
+                            style={{
+                              width: `${pct}%`,
+                              background:
+                                tier === 'red' ? '#E55A6F'
+                                : tier === 'yellow' ? '#F5A623'
+                                : '#5BC97F',
+                            }}
+                          />
+                        </div>
+                        <span className={`weak-score weak-score-${tier}`}>{pct}%</span>
                       </div>
-                      <span className="weak-score">{(item.mastery_score * 100).toFixed(0)}%</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="card knowledge-cell">
-                <h2 className="card-title card-title-sm">📈 掌握度趋势</h2>
-                <ReactECharts option={trendOption} style={{ height: 180, width: '100%' }} />
+              <div className="card knowledge-cell knowledge-cell-chart">
+                <h2 className="card-title card-title-sm">📈 掌握度分布</h2>
+                <ReactECharts option={trendOption} style={{ height: 260, width: '100%' }} />
               </div>
 
-              <div className="card knowledge-cell">
+              <div className="card knowledge-cell knowledge-cell-chart">
                 <h2 className="card-title card-title-sm">📊 各知识点练习量</h2>
-                <ReactECharts option={attemptOption} style={{ height: 180, width: '100%' }} />
+                <ReactECharts option={attemptOption} style={{ height: 260, width: '100%' }} />
               </div>
             </div>
+
+            {/* 学习建议卡片 — 基于 masteryData 计算 */}
+            <LearningSuggestionCard masteryData={masteryData} />
           </>
         )}
 

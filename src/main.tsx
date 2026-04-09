@@ -3,8 +3,13 @@ import ReactDOM from 'react-dom/client';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import App from './App';
+import { autoInitBrowserSettings } from './services';
 import './styles/index.css';
 import './styles/pages.css';
+
+// 浏览器打开时自动：启用 HTTP 模式、填入默认 sk、分配独立学生 id
+// Tauri 应用启动时只做学生 id 生成
+autoInitBrowserSettings();
 
 const antTheme = {
   token: {

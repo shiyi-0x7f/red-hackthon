@@ -24,3 +24,12 @@ Thumbs.db
 
 # Tauri
 src-tauri/gen/
+
+# Deploy
+.deploy_creds.json
+_deploy_pack/
+_deploy.tar.gz
+
+# Server venv
+server/.venv/
+server/*.db

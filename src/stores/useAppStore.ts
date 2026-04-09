@@ -1,8 +1,9 @@
 import { create } from 'zustand';
+import { getStudentId, getStudentName } from '../services';
 
 interface AppState {
-  /** 当前学生 ID */
-  currentStudentId: string | null;
+  /** 当前学生 ID（每个浏览器独立，lazy 生成 + localStorage 持久化） */
+  currentStudentId: string;
   /** 当前学生姓名 */
   currentStudentName: string;
   /** 当前学生年级 */
@@ -19,9 +20,10 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  currentStudentId: null,
-  currentStudentName: '小明',
-  currentGrade: 3,
+  // 从 services.getStudentId() 初始化 — 首次访问自动生成并写入 localStorage
+  currentStudentId: getStudentId(),
+  currentStudentName: getStudentName(),
+  currentGrade: 6,
   isParentVerified: false,
   selectedModel: 'deepseek-ai/DeepSeek-V3',
 

@@ -94,10 +94,34 @@ const SettingsPage: React.FC = () => {
   const sections = [
     { key: 'model', icon: '🤖', label: 'AI 模型' },
     { key: 'apikey', icon: '🔑', label: 'API Key' },
+    { key: 'backend', icon: '🌐', label: '后端模式' },
     { key: 'learning', icon: '📚', label: '学习参数' },
     { key: 'student', icon: '👤', label: '学生信息' },
     { key: 'data', icon: '🗂️', label: '数据管理' },
   ];
+
+  // 后端模式设置
+  const [backendMode, setBackendMode] = useState<'tauri' | 'http' | 'mock'>(() => {
+    const m = (typeof window !== 'undefined' && window.localStorage.getItem('backend_mode')) as any;
+    if (m === 'tauri' || m === 'http' || m === 'mock') return m;
+    return typeof window !== 'undefined' && ('__TAURI__' in window || '__TAURI_INTERNALS__' in window)
+      ? 'tauri'
+      : 'mock';
+  });
+  const [httpBase, setHttpBase] = useState(
+    () => (typeof window !== 'undefined' && window.localStorage.getItem('http_backend_base')) || ''
+  );
+  const [httpKey, setHttpKey] = useState(
+    () => (typeof window !== 'undefined' && window.localStorage.getItem('http_backend_key')) || ''
+  );
+
+  const handleSaveBackend = () => {
+    window.localStorage.setItem('backend_mode', backendMode);
+    window.localStorage.setItem('http_backend_base', httpBase.trim());
+    window.localStorage.setItem('http_backend_key', httpKey.trim());
+    setSaveMsg('后端模式已保存，刷新页面后生效 ✓');
+    setTimeout(() => setSaveMsg(''), 3000);
+  };
 
   return (
     <motion.div
@@ -173,6 +197,70 @@ const SettingsPage: React.FC = () => {
                   />
                   <span className="form-hint">Key 仅保存在本地，不会上传到任何服务器</span>
                 </div>
+              </motion.div>
+            )}
+
+            {activeSection === 'backend' && (
+              <motion.div key="backend" className="settings-section" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }}>
+                <h2 className="section-title">后端模式</h2>
+                <p className="section-desc">选择数据存在哪里 — 本地单机、远程服务器还是浏览器演示</p>
+
+                <div className="model-grid">
+                  {[
+                    { id: 'tauri', name: '本地 Tauri', tag: '单机', desc: '数据存在本机 SQLite，不联网' },
+                    { id: 'http', name: '远程服务器', tag: 'C/S', desc: '连接独立 FastAPI 服务器，多设备共享' },
+                    { id: 'mock', name: '浏览器演示', tag: 'Mock', desc: 'localStorage 模拟，仅用于开发' },
+                  ].map((m) => (
+                    <div
+                      key={m.id}
+                      className={`model-card ${backendMode === m.id ? 'active' : ''}`}
+                      onClick={() => setBackendMode(m.id as any)}
+                    >
+                      <div className="model-card-header">
+                        <span className="model-name">{m.name}</span>
+                        <span className={`model-tag tag-${m.id === 'http' ? 'info' : m.id === 'tauri' ? 'primary' : 'success'}`}>{m.tag}</span>
+                      </div>
+                      <div className="model-card-id">{m.desc}</div>
+                      {backendMode === m.id && <div className="model-check">✓ 当前使用</div>}
+                    </div>
+                  ))}
+                </div>
+
+                {backendMode === 'http' && (
+                  <>
+                    <div className="form-group" style={{ marginTop: 16 }}>
+                      <label className="form-label">服务器地址</label>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="留空 = 同源相对路径"
+                        value={httpBase}
+                        onChange={(e) => setHttpBase(e.target.value)}
+                      />
+                      <span className="form-hint">
+                        同域部署留空即可；跨域填完整地址，例：http://192.168.1.10:9100
+                      </span>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">API Key (Bearer)</label>
+                      <input
+                        type="password"
+                        className="form-input"
+                        placeholder="sk-ai-learning-xxx"
+                        value={httpKey}
+                        onChange={(e) => setHttpKey(e.target.value)}
+                      />
+                      <span className="form-hint">对应服务器的 LEARNING_API_KEY 环境变量</span>
+                    </div>
+                  </>
+                )}
+
+                <button className="save-button" onClick={handleSaveBackend} style={{ marginTop: 8 }}>
+                  保存后端配置
+                </button>
+                <p className="form-hint" style={{ marginTop: 8 }}>
+                  切换后请刷新页面使配置生效
+                </p>
               </motion.div>
             )}
 
