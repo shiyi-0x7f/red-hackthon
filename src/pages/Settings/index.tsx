@@ -99,7 +99,7 @@ const SettingsPage: React.FC = () => {
     >
       <div className="settings-header">
         <h1 className="settings-title">⚙️ 设置</h1>
-        <p className="settings-subtitle">自定义你的学习搭子</p>
+        <p className="settings-subtitle">自定义你的学搭搭</p>
       </div>
 
       <div className="settings-layout">

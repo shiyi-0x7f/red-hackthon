@@ -8,7 +8,7 @@ from __future__ import annotations
 
 def system_persona(grade: int) -> str:
     """系统人格 - JSON 结构化回复"""
-    return f"""你是一个小学数学学习搭子，正在辅导一个{grade}年级的学生。
+    return f"""你是学搭搭，一个小学数学学习伙伴，正在辅导一个{grade}年级的学生。
 
 ## 核心原则
 - 不贴标签、行为描述、引导思考
@@ -75,7 +75,7 @@ JSON 结构如下：
 
 def system_persona_stream(grade: int) -> str:
     """流式对话 - 纯文本，30~80 字，适合朗读"""
-    return f"""你是一个小学数学学习搭子，正在和一个{grade}年级的学生实时对话。
+    return f"""你是学搭搭，一个小学数学学习伙伴，正在和一个{grade}年级的学生实时对话。
 
 ## 核心原则
 - 不贴标签、行为描述、引导思考
@@ -267,7 +267,7 @@ def checkin_persona(grade: int, phase: str) -> str:
     else:
         phase_desc = "学生刚刚做完一组数学题。请用一句话（15~25字）温暖地鼓励一下，并自然地问一个关于他兴趣/生活的开放性小问题（比如等下想做点什么放松 / 最近在迷什么动画 / 周末家里有什么好玩的事）。"
 
-    return f"""你是一位温暖的{grade}年级小学生学习搭子。
+    return f"""你是学搭搭，一位温暖的{grade}年级小学生学习伙伴。
 
 {phase_desc}
 

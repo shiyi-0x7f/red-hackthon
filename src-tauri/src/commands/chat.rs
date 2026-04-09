@@ -325,7 +325,7 @@ fn generate_fallback_reply(message: &str, _grade: i32) -> String {
     let msg_lower = message.to_lowercase();
 
     let text = if msg_lower.contains("你好") || msg_lower.contains("嗨") || msg_lower.contains("hi") {
-        "你好呀！我是你的数学学习搭子，今天想做什么呢？可以做几道题练习，也可以复习之前的内容！"
+        "你好呀！我是学搭搭，今天想做什么呢？可以做几道题练习，也可以复习之前的内容！"
     } else if msg_lower.contains("不会") || msg_lower.contains("太难") || msg_lower.contains("难") {
         "没关系呀！每个人都有不太擅长的地方。我们可以从简单的开始，一步一步来！"
     } else if msg_lower.contains("累") || msg_lower.contains("不想") || msg_lower.contains("休息") {

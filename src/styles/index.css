@@ -1,5 +1,5 @@
 /* ========================================
-   AI 学习搭子 �?全局样式设计系统
+   学搭搭 �?全局样式设计系统
    面向小学生的活泼、温暖、有趣的视觉体验
    ======================================== */
 
@@ -328,7 +328,11 @@ body {
   font-size: 16px;
 }
 
-/* 用户头像 */
+/* 用户头像区域 */
+.user-avatar-wrapper {
+  position: relative;
+}
+
 .user-avatar {
   width: 36px;
   height: 36px;
@@ -341,11 +345,176 @@ body {
   font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: box-shadow var(--transition-fast);
+  transition: all var(--transition-fast);
+  user-select: none;
 }
 
 .user-avatar:hover {
   box-shadow: 0 0 0 3px var(--color-primary-lighter);
+  transform: scale(1.05);
+}
+
+/* ── 学生ID弹出卡片 ── */
+.user-id-card {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 320px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 12px 40px rgba(0, 0, 0, 0.12),
+    0 0 0 1px rgba(255, 140, 66, 0.1);
+  padding: var(--space-lg);
+  z-index: 1000;
+  animation: idCardSlideIn 0.25s ease;
+}
+
+@keyframes idCardSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 卡片小三角 */
+.user-id-card::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: 12px;
+  width: 12px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  transform: rotate(45deg);
+  border-top: 1px solid rgba(255, 140, 66, 0.1);
+  border-left: 1px solid rgba(255, 140, 66, 0.1);
+}
+
+.id-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.id-card-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary-gradient);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.id-card-info {
+  min-width: 0;
+}
+
+.id-card-name {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.id-card-grade {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.id-card-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-border), transparent);
+  margin: var(--space-md) 0;
+}
+
+.id-card-id-section {
+  margin-bottom: var(--space-md);
+}
+
+.id-card-label {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-xs);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.id-card-id-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.id-card-id-value {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--color-primary-bg);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+  color: var(--color-primary);
+  font-weight: 500;
+  word-break: break-all;
+  user-select: all;
+}
+
+.id-card-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-gradient);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  font-family: var(--font-family);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.id-card-copy-btn:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-sm);
+}
+
+.id-card-copy-btn.copied {
+  background: var(--color-success-gradient);
+}
+
+.id-card-tip {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  background: var(--color-accent-bg);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  line-height: 1.6;
+}
+
+.id-card-tip code {
+  font-size: 11px;
+  background: rgba(0, 181, 200, 0.12);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--color-accent);
+  font-family: 'SF Mono', 'Consolas', monospace;
+  word-break: break-all;
 }
 
 /* --- 页面内容�?--- */
@@ -549,7 +718,7 @@ body {
 }
 
 /* ========================================
-   首页 �?学习搭子主页样式
+   首页 — 学搭搭主页样式
    ======================================== */
 
 /* --- 首页容器 --- */
@@ -561,7 +730,7 @@ body {
   overflow: hidden;
 }
 
-/* --- 左侧列：招呼气泡 + 搭子 --- */
+/* --- 左侧列：招呼气泡 + 学搭搭 --- */
 .companion-column {
   flex: 0 0 340px;
   display: flex;

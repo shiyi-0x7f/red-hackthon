@@ -90,7 +90,7 @@ const STATIC_REPLIES = [
   '嘿嘿，这个问题很有趣！不过我现在还在学习中，很快就能跟你好好聊啦~',
   '我正在努力升级自己呢！等我准备好了，一定陪你一起探索数学的奥秘！✨',
   '你好厉害，已经开始主动学习了！我会尽快准备好，到时候一起加油！💪',
-  '哈哈，我现在还是个小搭子，等我长大一点就能回答更多问题啦~',
+  '哈哈，我现在还在成长中，等我长大一点就能回答更多问题啦~',
   '谢谢你来找我聊天！虽然我还在成长中，但我已经很开心啦 😊',
 ];
 
@@ -232,7 +232,7 @@ const HomePage: React.FC = () => {
     setVoiceSupported(!!SpeechRecognitionAPI);
   }, []);
 
-  // 首次加载时添加搭子打招呼消息
+  // 首次加载时添加学搭搭打招呼消息
   useEffect(() => {
     setMessages([{ id: 1, role: 'companion', content: greeting.text }]);
   }, []);
@@ -403,7 +403,7 @@ const HomePage: React.FC = () => {
 
   return (
     <div className="home-page">
-      {/* ===== 左侧：招呼气泡 + 搭子角色展示 ===== */}
+      {/* ===== 左侧：招呼气泡 + 学搭搭角色展示 ===== */}
       <div className="companion-column">
         {/* 招呼气泡 */}
         <motion.div
@@ -430,7 +430,7 @@ const HomePage: React.FC = () => {
           <div className="companion-avatar-wrapper" id="live2d-container">
             <motion.img
               src="/images/companion.png"
-              alt="学习搭子"
+              alt="学搭搭"
               className="companion-avatar-img"
               animate={{ y: [0, -8, 0] }}
               transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
@@ -535,7 +535,7 @@ const HomePage: React.FC = () => {
             >
               <div className="chat-header">
                 <SmileOutlined style={{ color: 'var(--color-primary)' }} />
-                <span>跟搭子聊天</span>
+                <span>跟学搭搭聊天</span>
                 <button
                   className="chat-close-btn"
                   onClick={() => setChatOpen(false)}
